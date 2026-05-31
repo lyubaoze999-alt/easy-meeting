@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key>
+	<string>会议纪要</string>
+	<key>CFBundleDisplayName</key>
+	<string>会议纪要</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.meetingnotes.app</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>CFBundleExecutable</key>
+	<string>MeetingNotes</string>
+
+	<!-- 菜单栏常驻 App：无 Dock 图标、无主窗口，仅菜单栏图标（需求 2.1） -->
+	<key>LSUIElement</key>
+	<true/>
+
+	<!-- 部署目标 macOS 14.4+（需求 2.1）。
+	     Core Audio Process Tap 免装虚拟声卡在 14.4 起可用 -->
+	<key>LSMinimumSystemVersion</key>
+	<string>14.4</string>
+
+	<!-- 权限用途说明（需求 3：首次启动权限引导） -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>用于采集本人声音，与系统声音混合后生成会议纪要。</string>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>用于采集系统播放的声音（如线上会议对方语音），与麦克风混合后生成会议纪要。</string>
+
+	<key>NSHighResolutionCapable</key>
+	<true/>
+</dict>
+</plist>
