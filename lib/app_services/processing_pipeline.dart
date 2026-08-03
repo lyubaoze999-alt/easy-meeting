@@ -15,7 +15,23 @@ import '../infrastructure/repositories/note_repository.dart';
 import '../infrastructure/repositories/processing_job_repository.dart';
 import 'recording_coordinator.dart';
 
-class ProcessingPipeline extends ChangeNotifier {
+abstract interface class ProcessingPipelinePort implements Listenable {
+  ProcessingJob? get currentJob;
+  MeetingNote? get generatedNote;
+  int get currentSlice;
+  int get totalSlices;
+  bool get isRunning;
+  ProcessingStage get stage;
+  String? get errorMessage;
+
+  Future<MeetingNote?> start(RecordingResult recording);
+  Future<MeetingNote?> retry(String jobId);
+  Future<void> abandonCurrent();
+  Future<MeetingNote?> resumeLatest();
+}
+
+class ProcessingPipeline extends ChangeNotifier
+    implements ProcessingPipelinePort {
   ProcessingPipeline({
     required this.transcriptionService,
     required this.summaryService,
@@ -34,49 +50,69 @@ class ProcessingPipeline extends ChangeNotifier {
   final CompletionNotifier notifier;
   final Future<AppSettings> Function() settingsProvider;
 
+  @override
   ProcessingJob? currentJob;
-  MeetingNote? generatedNote;
-  int currentSlice = 0;
-  int totalSlices = 0;
-  bool isRunning = false;
 
+  @override
+  MeetingNote? generatedNote;
+
+  @override
+  int currentSlice = 0;
+
+  @override
+  int totalSlices = 0;
+
+  @override
+  bool isRunning = false;
+  bool _acceptingWork = false;
+
+  @override
   ProcessingStage get stage => currentJob?.stage ?? ProcessingStage.done;
+
+  @override
   String? get errorMessage => currentJob?.failureMessage;
 
+  @override
   Future<MeetingNote?> start(RecordingResult recording) async {
-    final now = DateTime.now();
-    final job = ProcessingJob(
-      id: const Uuid().v4(),
-      audioPath: recording.audioPath,
-      template: recording.template,
-      startedAt: recording.startedAt,
-      duration: recording.duration,
-      highlights: recording.highlights,
-      stage: ProcessingStage.saving,
-      updatedAt: now,
-    );
-    await jobRepository.save(job);
-    return _run(job);
+    return _claimAndRun(() async {
+      final now = DateTime.now();
+      final job = ProcessingJob(
+        id: const Uuid().v4(),
+        audioPath: recording.audioPath,
+        template: recording.template,
+        startedAt: recording.startedAt,
+        duration: recording.duration,
+        highlights: recording.highlights,
+        stage: ProcessingStage.saving,
+        updatedAt: now,
+      );
+      await jobRepository.save(job);
+      return _run(job);
+    });
   }
 
+  @override
   Future<MeetingNote?> retry(String jobId) async {
-    final job = await jobRepository.load(jobId);
-    if (job == null) return null;
-    return _run(
-      job.copyWith(
-        stage: _resumeStage(job),
-        updatedAt: DateTime.now(),
-        retryCount: job.retryCount + 1,
-        clearFailure: true,
-      ),
-    );
+    return _claimAndRun(() async {
+      final job = await jobRepository.load(jobId);
+      if (job == null) return null;
+      return _run(
+        job.copyWith(
+          stage: _resumeStage(job),
+          updatedAt: DateTime.now(),
+          retryCount: job.retryCount + 1,
+          clearFailure: true,
+        ),
+      );
+    });
   }
 
   Future<List<ProcessingJob>> recoverableJobs() => jobRepository.recoverable();
 
+  @override
   Future<void> abandonCurrent() async {
     final job = currentJob;
-    if (job == null || isRunning) return;
+    if (job == null || isRunning || _acceptingWork) return;
     final work = Directory(
       p.join(File(job.audioPath).parent.path, 'job_${job.id}'),
     );
@@ -87,27 +123,37 @@ class ProcessingPipeline extends ChangeNotifier {
     notifyListeners();
   }
 
+  @override
   Future<MeetingNote?> resumeLatest() async {
-    final pending = await recoverableJobs();
-    if (pending.isEmpty || isRunning) return null;
-    final job = pending.first;
-    final settings = await settingsProvider();
-    if (!settings.servicesConfigured) {
-      currentJob = job.copyWith(
-        stage: ProcessingStage.failed,
-        updatedAt: DateTime.now(),
-        failureCode: 'missing_configuration',
-        failureMessage: '发现未完成任务。请完成服务配置后，从上次成功阶段重试。',
+    return _claimAndRun(() async {
+      final pending = await recoverableJobs();
+      if (pending.isEmpty) return null;
+      final job = pending.first;
+      final settings = await settingsProvider();
+      if (!settings.servicesConfigured) {
+        currentJob = job.copyWith(
+          stage: ProcessingStage.failed,
+          updatedAt: DateTime.now(),
+          failureCode: 'missing_configuration',
+          failureMessage: '发现未完成任务。请完成服务配置后，从上次成功阶段重试。',
+        );
+        await jobRepository.save(currentJob!);
+        notifyListeners();
+        return null;
+      }
+      return _run(
+        job.copyWith(
+          stage: _resumeStage(job),
+          updatedAt: DateTime.now(),
+          retryCount: job.retryCount + 1,
+          clearFailure: true,
+        ),
       );
-      await jobRepository.save(currentJob!);
-      notifyListeners();
-      return null;
-    }
-    return retry(job.id);
+    });
   }
 
   Future<MeetingNote?> _run(ProcessingJob initial) async {
-    if (isRunning) return null;
+    if (isRunning) throw StateError('已有处理任务正在运行。');
     isRunning = true;
     generatedNote = null;
     currentJob = initial;
@@ -266,6 +312,22 @@ class ProcessingPipeline extends ChangeNotifier {
       return null;
     } finally {
       isRunning = false;
+      notifyListeners();
+    }
+  }
+
+  Future<MeetingNote?> _claimAndRun(
+    Future<MeetingNote?> Function() action,
+  ) async {
+    if (_acceptingWork || isRunning) {
+      throw StateError('已有处理任务正在运行。');
+    }
+    _acceptingWork = true;
+    notifyListeners();
+    try {
+      return await action();
+    } finally {
+      _acceptingWork = false;
       notifyListeners();
     }
   }

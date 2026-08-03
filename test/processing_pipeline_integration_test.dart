@@ -21,6 +21,52 @@ import 'package:flutter_test/flutter_test.dart';
 import 'test_audio.dart';
 
 void main() {
+  test('concurrent starts create only one persistent processing job', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'easy-meeting-pipeline-mutex-test-',
+    );
+    final database = AppDatabase(NativeDatabase.memory());
+    addTearDown(() async {
+      await database.close();
+      await directory.delete(recursive: true);
+    });
+
+    final client = OpenAICompatibleClient();
+    final jobs = LocalProcessingJobRepository(database);
+    final pipeline = ProcessingPipeline(
+      transcriptionService: TranscriptionService(
+        client: client,
+        slicer: const WavSlicer(),
+      ),
+      summaryService: SummaryService(client),
+      noteRepository: LocalNoteRepository(
+        database,
+        Directory('${directory.path}/notes'),
+      ),
+      jobRepository: jobs,
+      diagnostics: LocalDiagnosticReporter(
+        File('${directory.path}/events.jsonl'),
+        exportDirectory: directory,
+      ),
+      settingsProvider: () async => const AppSettings(),
+    );
+    final recording = RecordingResult(
+      audioPath: '${directory.path}/meeting.wav',
+      startedAt: DateTime.utc(2026, 8, 3),
+      duration: const Duration(minutes: 1),
+      highlights: const [],
+      template: NoteTemplate.builtins.first,
+    );
+
+    final first = pipeline.start(recording);
+    await expectLater(pipeline.start(recording), throwsStateError);
+    await first;
+
+    expect(await jobs.recoverable(), hasLength(1));
+    expect(pipeline.stage, ProcessingStage.failed);
+    expect(pipeline.currentJob?.failureCode, 'missing_configuration');
+  });
+
   test(
     'retry reuses transcript checkpoint and completes the local workflow',
     () async {

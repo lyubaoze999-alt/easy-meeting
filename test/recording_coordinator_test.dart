@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:audio_capture/audio_capture.dart';
 import 'package:audio_capture/audio_capture_platform_interface.dart';
 import 'package:easy_meeting/app_services/recording_coordinator.dart';
@@ -40,6 +42,46 @@ void main() {
       expect(second.audioPath, endsWith('recording-2.wav'));
     },
   );
+
+  test('overlapping start commands cannot create two recordings', () async {
+    final platform = _DelayedCapturePlatform();
+    final coordinator = RecordingCoordinator(
+      capture: AudioCapture(platform: platform),
+    );
+    addTearDown(coordinator.dispose);
+
+    final firstStart = coordinator.start();
+    expect(coordinator.operationInFlight, isTrue);
+    await expectLater(coordinator.start(), throwsStateError);
+    expect(platform.startCalls, 1);
+
+    platform.startGate.complete({
+      'systemAudioAvailable': true,
+      'microphoneAvailable': true,
+    });
+    await firstStart;
+    expect(coordinator.state, RecordingState.recording);
+    expect(() => coordinator.reset(), throwsStateError);
+  });
+
+  test('a transition blocks every other recording command', () async {
+    final platform = _DelayedCapturePlatform()..startGate.complete({});
+    final coordinator = RecordingCoordinator(
+      capture: AudioCapture(platform: platform),
+    );
+    addTearDown(coordinator.dispose);
+    await coordinator.start();
+
+    final pause = coordinator.pause();
+    expect(coordinator.operationInFlight, isTrue);
+    await expectLater(coordinator.stop(), throwsStateError);
+    await expectLater(coordinator.resume(), throwsStateError);
+    expect(platform.stopCalls, 0);
+
+    platform.pauseGate.complete();
+    await pause;
+    expect(coordinator.state, RecordingState.paused);
+  });
 }
 
 class _FakeCapturePlatform extends AudioCapturePlatform {
@@ -68,6 +110,40 @@ class _FakeCapturePlatform extends AudioCapturePlatform {
     'systemAudioGranted': true,
     'microphoneGranted': true,
   };
+
+  @override
+  Future<void> openPermissionSettings({String? permission}) async {}
+}
+
+class _DelayedCapturePlatform extends AudioCapturePlatform {
+  final Completer<Map<String, Object?>> startGate = Completer();
+  final Completer<void> pauseGate = Completer();
+  int startCalls = 0;
+  int stopCalls = 0;
+
+  @override
+  Stream<Map<String, Object?>> get events => const Stream.empty();
+
+  @override
+  Future<Map<String, Object?>> start() {
+    startCalls += 1;
+    return startGate.future;
+  }
+
+  @override
+  Future<void> pause() => pauseGate.future;
+
+  @override
+  Future<void> resume() async {}
+
+  @override
+  Future<String> stop() async {
+    stopCalls += 1;
+    return '/tmp/delayed-recording.wav';
+  }
+
+  @override
+  Future<Map<String, Object?>> permissionStatus() async => {};
 
   @override
   Future<void> openPermissionSettings({String? permission}) async {}

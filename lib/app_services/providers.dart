@@ -13,12 +13,8 @@ final platformProfileProvider = Provider<PlatformProfile>(
   (ref) => PlatformProfile.current(),
 );
 
-final recordingCoordinatorProvider = ChangeNotifierProvider(
-  (ref) => ref.watch(appServicesProvider).recording,
-);
-
-final processingPipelineProvider = ChangeNotifierProvider(
-  (ref) => ref.watch(appServicesProvider).processing,
+final meetingSessionProvider = ChangeNotifierProvider(
+  (ref) => ref.watch(appServicesProvider).session,
 );
 
 final settingsProvider =

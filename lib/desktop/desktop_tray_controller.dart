@@ -1,10 +1,11 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../app_services/app_services.dart';
-import '../app_services/recording_coordinator.dart';
+import '../app_services/meeting_session_controller.dart';
 import '../domain/models/processing_job.dart';
 
 class DesktopTrayController with TrayListener, WindowListener {
@@ -18,8 +19,7 @@ class DesktopTrayController with TrayListener, WindowListener {
   Future<void> init() async {
     trayManager.addListener(this);
     windowManager.addListener(this);
-    services.recording.addListener(_refresh);
-    services.processing.addListener(_refresh);
+    services.session.addListener(_refresh);
     await windowManager.setPreventClose(true);
     await trayManager.setIcon(
       Platform.isWindows
@@ -32,25 +32,12 @@ class DesktopTrayController with TrayListener, WindowListener {
   }
 
   Future<void> _refresh() async {
-    final recording = services.recording;
-    final processing = services.processing;
-    final state = switch (recording.state) {
-      RecordingState.recording => '正在录音 ${_duration(recording.elapsed)}',
-      RecordingState.paused => '录音已暂停 ${_duration(recording.elapsed)}',
-      RecordingState.finished when processing.stage == ProcessingStage.failed =>
-        '处理失败，可重试',
-      RecordingState.finished when processing.stage == ProcessingStage.done =>
-        '纪要已生成',
-      RecordingState.finished => _stageName(processing.stage),
-      RecordingState.idle when processing.isRunning => _stageName(
-        processing.stage,
-      ),
-      RecordingState.idle => '准备记录',
-    };
+    final session = services.session;
+    final recording = session.recording;
+    final state = _sessionState(session);
     final isRecording =
-        recording.state == RecordingState.recording ||
-        recording.state == RecordingState.paused;
-    final exitBlocked = isRecording || processing.isRunning;
+        session.phase == MeetingSessionPhase.recording ||
+        session.phase == MeetingSessionPhase.paused;
     final title = Platform.isMacOS && isRecording
         ? ' ● ${_duration(recording.elapsed)}'
         : '';
@@ -64,22 +51,23 @@ class DesktopTrayController with TrayListener, WindowListener {
           MenuItem(key: 'status', label: state, disabled: true),
           MenuItem.separator(),
           MenuItem(key: 'show', label: '打开会议纪要'),
-          if (isRecording)
+          if (session.phase == MeetingSessionPhase.recording ||
+              session.phase == MeetingSessionPhase.paused)
             MenuItem(
               key: 'pause_resume',
-              label: recording.state == RecordingState.paused ? '继续录音' : '暂停录音',
+              label: session.phase == MeetingSessionPhase.paused
+                  ? '继续录音'
+                  : '暂停录音',
             ),
           if (isRecording) MenuItem(key: 'stop', label: '结束并生成纪要'),
-          if (processing.stage == ProcessingStage.failed &&
-              processing.currentJob != null)
+          if (session.phase == MeetingSessionPhase.failed &&
+              session.processing.currentJob != null)
             MenuItem(key: 'retry', label: '从上次成功阶段重试'),
           MenuItem.separator(),
           MenuItem(
             key: 'exit',
-            label: isRecording
-                ? '录音中不可退出'
-                : (processing.isRunning ? '处理中不可退出' : '退出'),
-            disabled: exitBlocked,
+            label: session.blocksExit ? '当前任务进行中，不可退出' : '退出',
+            disabled: session.blocksExit,
           ),
         ],
       ),
@@ -98,26 +86,24 @@ class DesktopTrayController with TrayListener, WindowListener {
       case 'show':
         _showWindow();
       case 'pause_resume':
-        if (services.recording.state == RecordingState.paused) {
-          services.recording.resume();
+        if (services.session.phase == MeetingSessionPhase.paused) {
+          unawaited(_runSessionCommand(services.session.resumeRecording));
         } else {
-          services.recording.pause();
+          unawaited(_runSessionCommand(services.session.pauseRecording));
         }
       case 'stop':
-        _stopAndProcess();
+        unawaited(_runSessionCommand(services.session.stopAndProcess));
       case 'retry':
-        final job = services.processing.currentJob;
-        if (job != null) services.processing.retry(job.id);
+        unawaited(_runSessionCommand(services.session.retryProcessing));
       case 'exit':
-        _exit();
+        unawaited(_exit());
     }
   }
 
-  Future<void> _stopAndProcess() async {
+  Future<void> _runSessionCommand(Future<void> Function() command) async {
     try {
-      final result = await services.recording.stop();
       await _showWindow();
-      await services.processing.start(result);
+      await command();
     } catch (_) {
       await _showWindow();
     }
@@ -129,10 +115,7 @@ class DesktopTrayController with TrayListener, WindowListener {
   }
 
   Future<void> _exit() async {
-    if (_exiting ||
-        services.recording.state == RecordingState.recording ||
-        services.recording.state == RecordingState.paused ||
-        services.processing.isRunning) {
+    if (_exiting || services.session.blocksExit) {
       return;
     }
     _exiting = true;
@@ -152,6 +135,23 @@ class DesktopTrayController with TrayListener, WindowListener {
     final seconds = value.inSeconds.remainder(60).toString().padLeft(2, '0');
     return '$minutes:$seconds';
   }
+
+  static String _sessionState(MeetingSessionController session) =>
+      switch (session.phase) {
+        MeetingSessionPhase.initializing => '正在恢复未完成任务',
+        MeetingSessionPhase.ready => '准备记录',
+        MeetingSessionPhase.starting => '正在启动录音',
+        MeetingSessionPhase.recording =>
+          '正在录音 ${_duration(session.recording.elapsed)}',
+        MeetingSessionPhase.pausing => '正在暂停录音',
+        MeetingSessionPhase.paused =>
+          '录音已暂停 ${_duration(session.recording.elapsed)}',
+        MeetingSessionPhase.resuming => '正在继续录音',
+        MeetingSessionPhase.stopping => '正在结束录音',
+        MeetingSessionPhase.processing => _stageName(session.processingStage),
+        MeetingSessionPhase.completed => '纪要已生成',
+        MeetingSessionPhase.failed => '处理失败，可重试',
+      };
 
   static String _stageName(ProcessingStage stage) => switch (stage) {
     ProcessingStage.saving => '正在保存音频',

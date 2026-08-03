@@ -8,6 +8,7 @@ import '../infrastructure/notifications/completion_notifier.dart';
 import '../infrastructure/repositories/note_repository.dart';
 import '../infrastructure/repositories/processing_job_repository.dart';
 import '../infrastructure/settings/settings_store.dart';
+import 'meeting_session_controller.dart';
 import 'processing_pipeline.dart';
 import 'recording_coordinator.dart';
 
@@ -21,6 +22,7 @@ class AppServices {
     required this.notifications,
     required this.recording,
     required this.processing,
+    required this.session,
   });
 
   final AppDatabase database;
@@ -31,6 +33,7 @@ class AppServices {
   final CompletionNotifier notifications;
   final RecordingCoordinator recording;
   final ProcessingPipeline processing;
+  final MeetingSessionController session;
 
   static Future<AppServices> create() async {
     final database = await AppDatabase.open();
@@ -53,6 +56,10 @@ class AppServices {
       notifier: notifications,
       settingsProvider: settings.load,
     );
+    final session = MeetingSessionController(
+      recording: recording,
+      processing: processing,
+    );
     await notes.purgeExpired();
     return AppServices(
       database: database,
@@ -63,10 +70,12 @@ class AppServices {
       notifications: notifications,
       recording: recording,
       processing: processing,
+      session: session,
     );
   }
 
   Future<void> close() async {
+    session.dispose();
     recording.dispose();
     processing.dispose();
     await database.close();

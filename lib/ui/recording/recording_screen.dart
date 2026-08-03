@@ -5,6 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../../app_services/providers.dart';
+import '../../app_services/meeting_session_controller.dart';
+import '../../app_services/processing_pipeline.dart';
 import '../../app_services/recording_coordinator.dart';
 import '../../domain/models/note_template.dart';
 import '../../domain/models/processing_job.dart';
@@ -14,12 +16,10 @@ class RecordingScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final recording = ref.watch(recordingCoordinatorProvider);
-    final processing = ref.watch(processingPipelineProvider);
+    final session = ref.watch(meetingSessionProvider);
+    final recording = session.recording;
+    final processing = session.processing;
     final notes = ref.watch(notesProvider).valueOrNull ?? const [];
-    final hasPendingProcessing =
-        processing.currentJob != null &&
-        processing.stage != ProcessingStage.done;
     return Scaffold(
       appBar: AppBar(title: const Text('会议纪要')),
       body: Center(
@@ -27,50 +27,74 @@ class RecordingScreen extends ConsumerWidget {
           padding: const EdgeInsets.all(28),
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 680),
-            child: hasPendingProcessing
-                ? _ProcessingPanel(
-                    pipeline: processing,
-                    onRetry: () => processing.retry(processing.currentJob!.id),
-                    onNext: () async {
-                      await processing.abandonCurrent();
-                      recording.reset();
-                    },
-                    onBackground: () => _continueInBackground(context, ref),
-                  )
-                : switch (recording.state) {
-                    RecordingState.idle => _IdlePanel(
-                      recentNotes: notes
-                          .take(3)
-                          .map((item) => item.title)
-                          .toList(),
-                      onStart: () => _run(context, recording.start),
-                    ),
-                    RecordingState.recording ||
-                    RecordingState.paused => _RecordingPanel(
-                      coordinator: recording,
-                      onStop: () async {
-                        try {
-                          final result = await recording.stop();
-                          await processing.start(result);
-                          ref.invalidate(notesProvider);
-                        } catch (error) {
-                          if (context.mounted) _showError(context, error);
-                        }
-                      },
-                    ),
-                    RecordingState.finished => _ProcessingPanel(
-                      pipeline: processing,
-                      onRetry: processing.currentJob == null
-                          ? null
-                          : () => processing.retry(processing.currentJob!.id),
-                      onNext: () async {
-                        await processing.abandonCurrent();
-                        recording.reset();
-                        ref.invalidate(notesProvider);
-                      },
-                      onBackground: () => _continueInBackground(context, ref),
-                    ),
-                  },
+            child: switch (session.phase) {
+              MeetingSessionPhase.initializing => const _TransitionPanel(
+                icon: Icons.sync,
+                title: '正在恢复未完成任务',
+                message: '检查本地处理检查点，请稍候。',
+              ),
+              MeetingSessionPhase.ready => _IdlePanel(
+                recentNotes: notes.take(3).map((item) => item.title).toList(),
+                onStart: () => _run(context, session.startRecording),
+              ),
+              MeetingSessionPhase.starting => const _TransitionPanel(
+                icon: Icons.mic_none,
+                title: '正在启动录音',
+                message: '正在连接系统声音与麦克风。',
+              ),
+              MeetingSessionPhase.recording ||
+              MeetingSessionPhase.pausing ||
+              MeetingSessionPhase.paused ||
+              MeetingSessionPhase.resuming ||
+              MeetingSessionPhase.stopping => _RecordingPanel(
+                coordinator: recording,
+                phase: session.phase,
+                onPauseResume: () => _run(
+                  context,
+                  session.phase == MeetingSessionPhase.paused
+                      ? session.resumeRecording
+                      : session.pauseRecording,
+                ),
+                onStop: () async {
+                  try {
+                    await session.stopAndProcess();
+                    ref.invalidate(notesProvider);
+                  } catch (error) {
+                    if (context.mounted) _showError(context, error);
+                  }
+                },
+                onHighlight: session.addHighlight,
+                onTemplateChanged: session.selectTemplate,
+              ),
+              MeetingSessionPhase.processing => _ProcessingPanel(
+                pipeline: processing,
+                onRetry: null,
+                onNext: null,
+                onBackground: () => _continueInBackground(context, ref),
+              ),
+              MeetingSessionPhase.failed => _ProcessingPanel(
+                pipeline: processing,
+                forceFailed: true,
+                errorOverride: session.lastError?.toString(),
+                onRetry: processing.currentJob == null
+                    ? null
+                    : () => _run(context, session.retryProcessing),
+                onNext: () async {
+                  await session.prepareNextMeeting();
+                  ref.invalidate(notesProvider);
+                },
+                onBackground: () => _continueInBackground(context, ref),
+              ),
+              MeetingSessionPhase.completed => _ProcessingPanel(
+                pipeline: processing,
+                onRetry: null,
+                onNext: () async {
+                  await session.prepareNextMeeting();
+                  ref.invalidate(notesProvider);
+                },
+                onBackground: () => _continueInBackground(context, ref),
+              ),
+            },
           ),
         ),
       ),
@@ -164,24 +188,44 @@ class _IdlePanel extends StatelessWidget {
 }
 
 class _RecordingPanel extends StatelessWidget {
-  const _RecordingPanel({required this.coordinator, required this.onStop});
+  const _RecordingPanel({
+    required this.coordinator,
+    required this.phase,
+    required this.onPauseResume,
+    required this.onStop,
+    required this.onHighlight,
+    required this.onTemplateChanged,
+  });
   final RecordingCoordinator coordinator;
+  final MeetingSessionPhase phase;
+  final VoidCallback onPauseResume;
   final VoidCallback onStop;
+  final VoidCallback onHighlight;
+  final ValueChanged<NoteTemplate> onTemplateChanged;
 
   @override
   Widget build(BuildContext context) {
-    final paused = coordinator.state == RecordingState.paused;
+    final paused = phase == MeetingSessionPhase.paused;
+    final status = switch (phase) {
+      MeetingSessionPhase.pausing => ('正在暂停录音…', Icons.pause_circle),
+      MeetingSessionPhase.resuming => ('正在继续录音…', Icons.play_circle),
+      MeetingSessionPhase.stopping => ('正在结束并保存录音…', Icons.stop_circle),
+      MeetingSessionPhase.paused => ('录音已暂停', Icons.pause_circle),
+      _ => ('正在录音', Icons.graphic_eq),
+    };
+    final transitioning = switch (phase) {
+      MeetingSessionPhase.pausing ||
+      MeetingSessionPhase.resuming ||
+      MeetingSessionPhase.stopping => true,
+      _ => false,
+    };
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Icon(
-          paused ? Icons.pause_circle : Icons.graphic_eq,
-          size: 64,
-          color: Theme.of(context).colorScheme.error,
-        ),
+        Icon(status.$2, size: 64, color: Theme.of(context).colorScheme.error),
         const SizedBox(height: 12),
         Text(
-          paused ? '录音已暂停' : '正在录音',
+          status.$1,
           textAlign: TextAlign.center,
           style: Theme.of(context).textTheme.headlineSmall,
         ),
@@ -225,13 +269,15 @@ class _RecordingPanel extends StatelessWidget {
                 ),
               )
               .toList(),
-          onChanged: (template) {
-            if (template != null) coordinator.selectTemplate(template);
-          },
+          onChanged: transitioning
+              ? null
+              : (template) {
+                  if (template != null) onTemplateChanged(template);
+                },
         ),
         const SizedBox(height: 16),
         OutlinedButton.icon(
-          onPressed: coordinator.addHighlight,
+          onPressed: transitioning ? null : onHighlight,
           icon: const Icon(Icons.bookmark_add_outlined),
           label: Text('标记重点（${coordinator.highlights.length}）'),
         ),
@@ -240,7 +286,7 @@ class _RecordingPanel extends StatelessWidget {
           children: [
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: paused ? coordinator.resume : coordinator.pause,
+                onPressed: transitioning ? null : onPauseResume,
                 icon: Icon(paused ? Icons.play_arrow : Icons.pause),
                 label: Text(paused ? '继续' : '暂停'),
               ),
@@ -248,7 +294,7 @@ class _RecordingPanel extends StatelessWidget {
             const SizedBox(width: 12),
             Expanded(
               child: FilledButton.icon(
-                onPressed: onStop,
+                onPressed: transitioning ? null : onStop,
                 icon: const Icon(Icons.stop),
                 label: const Text('结束并生成纪要'),
               ),
@@ -299,15 +345,19 @@ class _ProcessingPanel extends StatelessWidget {
     required this.onRetry,
     required this.onNext,
     required this.onBackground,
+    this.forceFailed = false,
+    this.errorOverride,
   });
-  final dynamic pipeline;
+  final ProcessingPipelinePort pipeline;
   final VoidCallback? onRetry;
-  final VoidCallback onNext;
+  final VoidCallback? onNext;
   final VoidCallback onBackground;
+  final bool forceFailed;
+  final String? errorOverride;
 
   @override
   Widget build(BuildContext context) {
-    final stage = pipeline.stage as ProcessingStage;
+    final stage = pipeline.stage;
     if (stage == ProcessingStage.done && pipeline.generatedNote != null) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -324,7 +374,7 @@ class _ProcessingPanel extends StatelessWidget {
             child: Padding(
               padding: const EdgeInsets.all(18),
               child: Text(
-                pipeline.generatedNote.title as String,
+                pipeline.generatedNote!.title,
                 style: Theme.of(context).textTheme.titleLarge,
               ),
             ),
@@ -334,7 +384,8 @@ class _ProcessingPanel extends StatelessWidget {
         ],
       );
     }
-    final failed = stage == ProcessingStage.failed;
+    final failed = forceFailed || stage == ProcessingStage.failed;
+    final errorMessage = errorOverride ?? pipeline.errorMessage;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -351,9 +402,9 @@ class _ProcessingPanel extends StatelessWidget {
             '正在转写第 ${pipeline.currentSlice}/${pipeline.totalSlices} 个片段',
             textAlign: TextAlign.center,
           ),
-        if (pipeline.errorMessage != null)
+        if (errorMessage != null)
           Text(
-            pipeline.errorMessage as String,
+            errorMessage,
             textAlign: TextAlign.center,
             style: TextStyle(color: Theme.of(context).colorScheme.error),
           ),
@@ -373,7 +424,7 @@ class _ProcessingPanel extends StatelessWidget {
             icon: const Icon(Icons.refresh),
             label: const Text('从上次成功阶段重试'),
           ),
-        if (failed)
+        if (failed && onNext != null)
           TextButton(onPressed: onNext, child: const Text('放弃并开始下一场')),
       ],
     );
@@ -387,4 +438,34 @@ class _ProcessingPanel extends StatelessWidget {
     ProcessingStage.done => '处理完成',
     ProcessingStage.failed => '处理失败',
   };
+}
+
+class _TransitionPanel extends StatelessWidget {
+  const _TransitionPanel({
+    required this.icon,
+    required this.title,
+    required this.message,
+  });
+
+  final IconData icon;
+  final String title;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Icon(icon, size: 64),
+      const SizedBox(height: 16),
+      Text(
+        title,
+        textAlign: TextAlign.center,
+        style: Theme.of(context).textTheme.headlineSmall,
+      ),
+      const SizedBox(height: 8),
+      Text(message, textAlign: TextAlign.center),
+      const SizedBox(height: 20),
+      const LinearProgressIndicator(),
+    ],
+  );
 }

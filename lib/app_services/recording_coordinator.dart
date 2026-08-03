@@ -62,6 +62,9 @@ class RecordingCoordinator extends ChangeNotifier {
   DateTime? _segmentStartedAt;
   Duration _accumulated = Duration.zero;
   Timer? _ticker;
+  bool _operationInFlight = false;
+
+  bool get operationInFlight => _operationInFlight;
 
   Duration get elapsed {
     if (_segmentStartedAt == null) return _accumulated;
@@ -69,7 +72,7 @@ class RecordingCoordinator extends ChangeNotifier {
   }
 
   Future<void> start() async {
-    if (state != RecordingState.idle) return;
+    _beginOperation(const {RecordingState.idle});
     errorMessage = null;
     try {
       final result = await _capture.start();
@@ -90,30 +93,39 @@ class RecordingCoordinator extends ChangeNotifier {
       errorMessage = '无法开始录音：$error';
       notifyListeners();
       rethrow;
+    } finally {
+      _endOperation();
     }
   }
 
   Future<void> pause() async {
-    if (state != RecordingState.recording) return;
-    await _capture.pause();
-    _freezeSegment();
-    state = RecordingState.paused;
-    notifyListeners();
+    _beginOperation(const {RecordingState.recording});
+    try {
+      await _capture.pause();
+      _freezeSegment();
+      state = RecordingState.paused;
+      notifyListeners();
+    } finally {
+      _endOperation();
+    }
   }
 
   Future<void> resume() async {
-    if (state != RecordingState.paused) return;
-    await _capture.resume();
-    _segmentStartedAt = DateTime.now();
-    state = RecordingState.recording;
-    notifyListeners();
+    _beginOperation(const {RecordingState.paused});
+    try {
+      await _capture.resume();
+      _segmentStartedAt = DateTime.now();
+      state = RecordingState.recording;
+      notifyListeners();
+    } finally {
+      _endOperation();
+    }
   }
 
   Future<RecordingResult> stop() async {
-    if (state != RecordingState.recording && state != RecordingState.paused) {
-      throw StateError('当前没有正在进行的录音。');
-    }
+    _beginOperation(const {RecordingState.recording, RecordingState.paused});
     errorMessage = null;
+    final wasRecording = state == RecordingState.recording;
     try {
       _freezeSegment();
       final path = await _capture.stop();
@@ -128,9 +140,14 @@ class RecordingCoordinator extends ChangeNotifier {
         template: selectedTemplate,
       );
     } catch (error) {
+      if (wasRecording && _segmentStartedAt == null) {
+        _segmentStartedAt = DateTime.now();
+      }
       errorMessage = '无法结束录音：$error';
       notifyListeners();
       rethrow;
+    } finally {
+      _endOperation();
     }
   }
 
@@ -149,6 +166,11 @@ class RecordingCoordinator extends ChangeNotifier {
   }
 
   void reset() {
+    if (_operationInFlight ||
+        state == RecordingState.recording ||
+        state == RecordingState.paused) {
+      throw StateError('录音尚未安全结束，不能重置。');
+    }
     _ticker?.cancel();
     state = RecordingState.idle;
     highlights = [];
@@ -166,6 +188,20 @@ class RecordingCoordinator extends ChangeNotifier {
       _accumulated += DateTime.now().difference(_segmentStartedAt!);
       _segmentStartedAt = null;
     }
+  }
+
+  void _beginOperation(Set<RecordingState> allowed) {
+    if (_operationInFlight) throw StateError('上一项录音操作尚未完成，请稍候。');
+    if (!allowed.contains(state)) {
+      throw StateError('当前录音状态“${state.name}”不允许执行此操作。');
+    }
+    _operationInFlight = true;
+    notifyListeners();
+  }
+
+  void _endOperation() {
+    _operationInFlight = false;
+    notifyListeners();
   }
 
   @override
