@@ -8,8 +8,12 @@
 - [x] macOS `PCMFramePump` 原生测试通过；已接入 macOS CI 构建门禁
 - [x] Android release APK 生成成功（58.4 MB）
 - [x] 实时/批量转写并发 revision、跨会议事件隔离、pending connect 取消、退出 drain、暂停队列清理、录音归档重试均有自动化覆盖
-- [x] macOS release + DMG：`macos-15` GitHub Actions 已验证，unsigned DMG artifact 21.3 MB
-- [ ] Windows release + MSIX、iOS no-codesign IPA：首轮暴露原生 SDK 兼容问题，修复后等待平台 CI 复验
+- [x] 四端平台构建：[GitHub Actions run 30809195120](https://github.com/lyubaoze999-alt/easy-meeting/actions/runs/30809195120) 全部通过
+- [x] macOS release + DMG：`macos-15` 已验证，unsigned DMG artifact 22.3 MB
+- [x] Windows release + MSIX：`windows-2022` / Visual Studio 2022 已验证，unsigned MSIX artifact 14.2 MB
+- [x] Android release APK：CI artifact 26.7 MB（压缩包大小），本地 APK 58.4 MB
+- [x] iOS no-codesign archive：`macos-15` 已验证，unsigned xcarchive artifact 49.9 MB；签名后才可导出 IPA
+- [x] 共享质量门禁：[GitHub Actions run 30809195094](https://github.com/lyubaoze999-alt/easy-meeting/actions/runs/30809195094) 通过
 
 自动化通过不替代下列桌面真机音频验收。
 
