@@ -79,7 +79,42 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get
-      - run: flutter build windows --release
+      - name: Build Windows release
+        id: windows_build
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP "windows-release-build.log"
+          cmd /c "flutter --no-color build windows --release > `"$log`" 2>&1"
+          $buildExit = $LASTEXITCODE
+          Get-Content $log
+          exit $buildExit
+      - name: Summarize Windows build failure
+        if: ${{ failure() && steps.windows_build.outcome == 'failure' }}
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP "windows-release-build.log"
+          "## Windows release build failed" >> $env:GITHUB_STEP_SUMMARY
+          "The final 300 log lines are shown below; the complete log is attached to this run." >> $env:GITHUB_STEP_SUMMARY
+          '```text' >> $env:GITHUB_STEP_SUMMARY
+          Get-Content $log -Tail 300 |
+            Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          '```' >> $env:GITHUB_STEP_SUMMARY
+
+          Get-Content $log |
+            Select-String -Pattern 'fatal error|error C[0-9]+|error LNK[0-9]+|CMake Error' |
+            Select-Object -Last 20 |
+            ForEach-Object {
+              $message = $_.Line.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+              Write-Output "::error title=Windows build::$message"
+            }
+      - name: Upload Windows build diagnostics
+        if: ${{ failure() && steps.windows_build.outcome == 'failure' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/windows-release-build.log
+          if-no-files-found: error
+          retention-days: 14
       - shell: powershell
         run: ./packaging/windows/build_msix.ps1
       - uses: actions/upload-artifact@v4

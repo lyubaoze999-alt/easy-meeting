@@ -20,7 +20,11 @@ New-Item -ItemType Directory -Path (Join-Path $staging "Assets") | Out-Null
 
 Add-Type -AssemblyName System.Drawing
 $icon = [System.Drawing.Image]::FromFile((Join-Path $root "android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png"))
-foreach ($spec in @(@("Square44x44Logo.png", 44), @("Square150x150Logo.png", 150))) {
+foreach ($spec in @(
+  @("StoreLogo.png", 50),
+  @("Square44x44Logo.png", 44),
+  @("Square150x150Logo.png", 150)
+)) {
   $bitmap = New-Object System.Drawing.Bitmap($spec[1], $spec[1])
   $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
   $graphics.DrawImage($icon, 0, 0, $spec[1], $spec[1])
@@ -40,7 +44,7 @@ $manifest = @"
   <Properties>
     <DisplayName>会议纪要</DisplayName>
     <PublisherDisplayName>MeetingNotes</PublisherDisplayName>
-    <Logo>Assets\Square150x150Logo.png</Logo>
+    <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
   <Dependencies>
     <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.26100.0" />
@@ -53,7 +57,10 @@ $manifest = @"
         Square150x150Logo="Assets\Square150x150Logo.png" />
     </Application>
   </Applications>
-  <Capabilities><rescap:Capability Name="runFullTrust" /></Capabilities>
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+    <DeviceCapability Name="microphone" />
+  </Capabilities>
 </Package>
 "@
 Set-Content -Path (Join-Path $staging "AppxManifest.xml") -Value $manifest -Encoding UTF8
@@ -65,6 +72,7 @@ if (-not $makeAppx) { throw "makeappx.exe was not found in the Windows SDK" }
 $outputPath = Join-Path $root $Output
 New-Item -ItemType Directory -Path (Split-Path $outputPath) -Force | Out-Null
 & $makeAppx.FullName pack /d $staging /p $outputPath /o
+if ($LASTEXITCODE -ne 0) { throw "makeappx.exe failed with exit code $LASTEXITCODE" }
 
 if ($CertificatePath) {
   $signTool = Get-ChildItem $kits -Filter signtool.exe -Recurse |
@@ -74,8 +82,8 @@ if ($CertificatePath) {
   if ($CertificatePassword) { $arguments += @("/p", $CertificatePassword) }
   $arguments += $outputPath
   & $signTool.FullName $arguments
+  if ($LASTEXITCODE -ne 0) { throw "signtool.exe failed with exit code $LASTEXITCODE" }
 }
 
 Remove-Item -Recurse -Force $staging
 Write-Output $outputPath
-
