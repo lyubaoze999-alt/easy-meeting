@@ -26,10 +26,16 @@ public final class AudioCapturePlugin: NSObject, FlutterPlugin, FlutterStreamHan
     case "start":
       do {
         let availability = try capture.start()
+        let degradationReason: Any
+        if let reason = availability.degradationReason {
+          degradationReason = reason
+        } else {
+          degradationReason = NSNull()
+        }
         result([
           "systemAudioAvailable": availability.systemAudio,
           "microphoneAvailable": availability.microphone,
-          "degradationReason": availability.degradationReason ?? NSNull()
+          "degradationReason": degradationReason
         ])
       } catch {
         result(FlutterError(code: "start_failed", message: error.localizedDescription, details: nil))
