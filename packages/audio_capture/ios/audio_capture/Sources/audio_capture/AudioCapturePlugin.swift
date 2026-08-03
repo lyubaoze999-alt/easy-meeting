@@ -127,7 +127,9 @@ private final class IOSAudioCapture {
     try session.setCategory(
       .playAndRecord,
       mode: .spokenAudio,
-      options: [.defaultToSpeaker, .allowBluetoothHFP]
+      // `.allowBluetooth` is the spelling available on the Xcode 16 SDK used
+      // by the macOS 15 CI runner; newer SDKs rename it to allowBluetoothHFP.
+      options: [.defaultToSpeaker, .allowBluetooth]
     )
     try session.setActive(true, options: .notifyOthersOnDeactivation)
 

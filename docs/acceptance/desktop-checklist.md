@@ -8,8 +8,8 @@
 - [x] macOS `PCMFramePump` 原生测试通过；已接入 macOS CI 构建门禁
 - [x] Android release APK 生成成功（58.4 MB）
 - [x] 实时/批量转写并发 revision、跨会议事件隔离、pending connect 取消、退出 drain、暂停队列清理、录音归档重试均有自动化覆盖
-- [ ] macOS release + DMG：待推送后由 `macos-15` GitHub Actions 验证
-- [ ] Windows release + MSIX、iOS no-codesign IPA：待推送后由平台 CI 验证
+- [x] macOS release + DMG：`macos-15` GitHub Actions 已验证，unsigned DMG artifact 21.3 MB
+- [ ] Windows release + MSIX、iOS no-codesign IPA：首轮暴露原生 SDK 兼容问题，修复后等待平台 CI 复验
 
 自动化通过不替代下列桌面真机音频验收。
 
