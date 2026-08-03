@@ -70,7 +70,9 @@ jobs:
           path: build/ios/archive/*.xcarchive
 
   windows:
-    runs-on: windows-latest
+    # Flutter desktop and permission_handler_windows currently require the
+    # Visual Studio 2022 toolchain. windows-latest moved to VS 2026 in 2026.
+    runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
