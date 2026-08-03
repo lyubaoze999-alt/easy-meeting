@@ -4,7 +4,9 @@ on:
   workflow_dispatch:
   pull_request:
   push:
-    branches: [main]
+    branches:
+      - main
+      - agent/**
 
 jobs:
   android:
@@ -77,4 +79,3 @@ jobs:
         with:
           name: windows-msix-unsigned
           path: build/releases/*.msix
-
