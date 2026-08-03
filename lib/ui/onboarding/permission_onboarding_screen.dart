@@ -1,7 +1,6 @@
 import 'package:audio_capture/audio_capture.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:permission_handler/permission_handler.dart';
 
 import '../../app_services/providers.dart';
 import '../../domain/models/platform_profile.dart';
@@ -30,10 +29,9 @@ class _PermissionOnboardingScreenState
     try {
       status = await capture.permissionStatus();
     } catch (_) {
-      final microphone = await Permission.microphone.status;
-      status = AudioPermissionStatus(
+      status = const AudioPermissionStatus(
         systemAudioGranted: false,
-        microphoneGranted: microphone.isGranted,
+        microphoneGranted: false,
       );
     }
     if (mounted) setState(() => loading = false);
@@ -73,7 +71,7 @@ class _PermissionOnboardingScreenState
                           title: '系统声音',
                           description: '用于记录线上会议中对方的声音。',
                           granted: status?.systemAudioGranted ?? false,
-                          onTap: capture.openPermissionSettings,
+                          onTap: () => _requestPermission('systemAudio'),
                         )
                       else
                         Card(
@@ -92,10 +90,7 @@ class _PermissionOnboardingScreenState
                         title: '麦克风',
                         description: '用于记录你自己的声音。',
                         granted: status?.microphoneGranted ?? false,
-                        onTap: () async {
-                          await Permission.microphone.request();
-                          await _refresh();
-                        },
+                        onTap: () => _requestPermission('microphone'),
                       ),
                       const SizedBox(height: 20),
                       FilledButton(
@@ -120,6 +115,15 @@ class _PermissionOnboardingScreenState
     await ref
         .read(settingsProvider.notifier)
         .save(current.copyWith(onboardingCompleted: true));
+  }
+
+  Future<void> _requestPermission(String permission) async {
+    setState(() => loading = true);
+    try {
+      await capture.openPermissionSettings(permission: permission);
+    } finally {
+      await _refresh();
+    }
   }
 }
 

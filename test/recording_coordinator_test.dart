@@ -70,5 +70,5 @@ class _FakeCapturePlatform extends AudioCapturePlatform {
   };
 
   @override
-  Future<void> openPermissionSettings() async {}
+  Future<void> openPermissionSettings({String? permission}) async {}
 }

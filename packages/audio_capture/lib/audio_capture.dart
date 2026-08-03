@@ -1,4 +1,3 @@
-
 import 'audio_capture_platform_interface.dart';
 
 class AudioCaptureStartResult {
@@ -38,7 +37,7 @@ class AudioPermissionStatus {
 
 class AudioCapture {
   AudioCapture({AudioCapturePlatform? platform})
-      : _platform = platform ?? AudioCapturePlatform.instance;
+    : _platform = platform ?? AudioCapturePlatform.instance;
 
   final AudioCapturePlatform _platform;
 
@@ -54,7 +53,8 @@ class AudioCapture {
   Future<String> stop() => _platform.stop();
   Future<AudioPermissionStatus> permissionStatus() async =>
       AudioPermissionStatus.fromMap(await _platform.permissionStatus());
-  Future<void> openPermissionSettings() => _platform.openPermissionSettings();
+  Future<void> openPermissionSettings({String? permission}) =>
+      _platform.openPermissionSettings(permission: permission);
 
   Stream<double> _doubleEvents(String type) => _platform.events
       .where((event) => event['type'] == type)

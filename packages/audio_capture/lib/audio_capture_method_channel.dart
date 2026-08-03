@@ -20,8 +20,8 @@ class MethodChannelAudioCapture extends AudioCapturePlatform {
 
   @override
   Future<Map<String, Object?>> start() async => Map<String, Object?>.from(
-        await methodChannel.invokeMapMethod<String, Object?>('start') ?? const {},
-      );
+    await methodChannel.invokeMapMethod<String, Object?>('start') ?? const {},
+  );
 
   @override
   Future<void> pause() => methodChannel.invokeMethod<void>('pause');
@@ -36,10 +36,13 @@ class MethodChannelAudioCapture extends AudioCapturePlatform {
   @override
   Future<Map<String, Object?>> permissionStatus() async =>
       Map<String, Object?>.from(
-        await methodChannel.invokeMapMethod<String, Object?>('permissionStatus') ?? const {},
+        await methodChannel.invokeMapMethod<String, Object?>(
+              'permissionStatus',
+            ) ??
+            const {},
       );
 
   @override
-  Future<void> openPermissionSettings() =>
-      methodChannel.invokeMethod<void>('openPermissionSettings');
+  Future<void> openPermissionSettings({String? permission}) =>
+      methodChannel.invokeMethod<void>('openPermissionSettings', permission);
 }

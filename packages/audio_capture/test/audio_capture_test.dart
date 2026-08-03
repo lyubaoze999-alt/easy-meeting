@@ -3,6 +3,8 @@ import 'package:audio_capture/audio_capture_platform_interface.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class FakeAudioCapturePlatform extends AudioCapturePlatform {
+  String? requestedPermission;
+
   final controller = Stream<Map<String, Object?>>.fromIterable([
     {'type': 'systemLevel', 'value': 0.5},
   ]);
@@ -12,9 +14,9 @@ class FakeAudioCapturePlatform extends AudioCapturePlatform {
 
   @override
   Future<Map<String, Object?>> start() async => {
-        'systemAudioAvailable': true,
-        'microphoneAvailable': true,
-      };
+    'systemAudioAvailable': true,
+    'microphoneAvailable': true,
+  };
 
   @override
   Future<void> pause() async {}
@@ -27,12 +29,14 @@ class FakeAudioCapturePlatform extends AudioCapturePlatform {
 
   @override
   Future<Map<String, Object?>> permissionStatus() async => {
-        'systemAudioGranted': true,
-        'microphoneGranted': true,
-      };
+    'systemAudioGranted': true,
+    'microphoneGranted': true,
+  };
 
   @override
-  Future<void> openPermissionSettings() async {}
+  Future<void> openPermissionSettings({String? permission}) async {
+    requestedPermission = permission;
+  }
 }
 
 void main() {
@@ -42,5 +46,14 @@ void main() {
     expect(result.systemAudioAvailable, isTrue);
     expect(await capture.systemLevel.first, 0.5);
     expect(await capture.stop(), '/tmp/meeting.wav');
+  });
+
+  test('forwards the requested permission to the native platform', () async {
+    final platform = FakeAudioCapturePlatform();
+    final capture = AudioCapture(platform: platform);
+
+    await capture.openPermissionSettings(permission: 'systemAudio');
+
+    expect(platform.requestedPermission, 'systemAudio');
   });
 }

@@ -61,10 +61,12 @@ public final class AudioCapturePlugin: NSObject, FlutterPlugin, FlutterStreamHan
         "microphoneGranted": AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
       ])
     case "openPermissionSettings":
-      if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
-        NSWorkspace.shared.open(url)
+      switch call.arguments as? String {
+      case "microphone":
+        requestMicrophonePermission(result: result)
+      default:
+        requestSystemAudioPermission(result: result)
       }
-      result(nil)
     default:
       result(FlutterMethodNotImplemented)
     }
@@ -78,5 +80,41 @@ public final class AudioCapturePlugin: NSObject, FlutterPlugin, FlutterStreamHan
   public func onCancel(withArguments arguments: Any?) -> FlutterError? {
     eventSink = nil
     return nil
+  }
+
+  private func requestSystemAudioPermission(result: @escaping FlutterResult) {
+    guard #available(macOS 14.4, *) else {
+      result(nil)
+      return
+    }
+    if CGPreflightScreenCaptureAccess() || CGRequestScreenCaptureAccess() {
+      result(nil)
+      return
+    }
+    openPrivacySettings(pane: "Privacy_ScreenCapture")
+    result(nil)
+  }
+
+  private func requestMicrophonePermission(result: @escaping FlutterResult) {
+    switch AVCaptureDevice.authorizationStatus(for: .audio) {
+    case .authorized:
+      result(nil)
+    case .notDetermined:
+      AVCaptureDevice.requestAccess(for: .audio) { _ in
+        DispatchQueue.main.async { result(nil) }
+      }
+    case .denied, .restricted:
+      openPrivacySettings(pane: "Privacy_Microphone")
+      result(nil)
+    @unknown default:
+      result(nil)
+    }
+  }
+
+  private func openPrivacySettings(pane: String) {
+    guard let url = URL(
+      string: "x-apple.systempreferences:com.apple.preference.security?\(pane)"
+    ) else { return }
+    NSWorkspace.shared.open(url)
   }
 }

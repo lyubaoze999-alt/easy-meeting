@@ -29,15 +29,20 @@ abstract class AudioCapturePlatform extends PlatformInterface {
   Future<Map<String, Object?>> start() =>
       throw UnimplementedError('start has not been implemented.');
 
-  Future<void> pause() => throw UnimplementedError('pause has not been implemented.');
+  Future<void> pause() =>
+      throw UnimplementedError('pause has not been implemented.');
 
-  Future<void> resume() => throw UnimplementedError('resume has not been implemented.');
+  Future<void> resume() =>
+      throw UnimplementedError('resume has not been implemented.');
 
-  Future<String> stop() => throw UnimplementedError('stop has not been implemented.');
+  Future<String> stop() =>
+      throw UnimplementedError('stop has not been implemented.');
 
   Future<Map<String, Object?>> permissionStatus() =>
       throw UnimplementedError('permissionStatus has not been implemented.');
 
-  Future<void> openPermissionSettings() =>
-      throw UnimplementedError('openPermissionSettings has not been implemented.');
+  Future<void> openPermissionSettings({String? permission}) =>
+      throw UnimplementedError(
+        'openPermissionSettings has not been implemented.',
+      );
 }
