@@ -1,12 +1,12 @@
 #include "audio_capture_plugin.h"
 
+#include <windows.h>
+
+#include <mmdeviceapi.h>
 #include <audioclient.h>
-#include <functiondiscoverykeys_devpkey.h>
 #include <ks.h>
 #include <ksmedia.h>
-#include <mmdeviceapi.h>
 #include <shellapi.h>
-#include <windows.h>
 
 #include <algorithm>
 #include <atomic>
@@ -27,8 +27,8 @@
 #include <vector>
 
 #include <flutter/event_channel.h>
-#include <flutter/standard_method_codec.h>
 #include <flutter/event_stream_handler_functions.h>
+#include <flutter/standard_method_codec.h>
 
 namespace audio_capture {
 namespace {
@@ -59,7 +59,7 @@ std::string Utf8(const std::wstring& value) {
   const int size = WideCharToMultiByte(CP_UTF8, 0, value.data(),
                                        static_cast<int>(value.size()), nullptr,
                                        0, nullptr, nullptr);
-  std::string result(size, '\0');
+  std::string result(static_cast<size_t>(size), '\0');
   WideCharToMultiByte(CP_UTF8, 0, value.data(), static_cast<int>(value.size()),
                       result.data(), size, nullptr, nullptr);
   return result;
@@ -173,7 +173,8 @@ double Level(const std::vector<int16_t>& values) {
     const double normalized = value / 32768.0;
     sum += normalized * normalized;
   }
-  return std::min(1.0, std::sqrt(sum / values.size()));
+  return std::min(
+      1.0, std::sqrt(sum / static_cast<double>(values.size())));
 }
 
 }  // namespace
@@ -254,41 +255,42 @@ class WasapiRecorder {
       return;
     }
     CaptureSource microphone;
-    CaptureSource system;
+    CaptureSource system_audio;
     hr = OpenSource(enumerator, eCapture, eCommunications, false, &microphone);
     if (FAILED(hr)) {
       enumerator->Release();
       promise.set_value({false, false, "麦克风不可用，请检查 Windows 隐私设置。"});
       microphone.Reset();
-      system.Reset();
+      system_audio.Reset();
       if (SUCCEEDED(com)) CoUninitialize();
       return;
     }
     bool has_system =
-        SUCCEEDED(OpenSource(enumerator, eRender, eConsole, true, &system));
+        SUCCEEDED(OpenSource(enumerator, eRender, eConsole, true,
+                             &system_audio));
     enumerator->Release();
     hr = microphone.client->Start();
     if (FAILED(hr)) {
       promise.set_value({false, false, "麦克风启动失败，请检查输入设备。"});
       microphone.Reset();
-      system.Reset();
+      system_audio.Reset();
       if (SUCCEEDED(com)) CoUninitialize();
       return;
     }
-    if (has_system && FAILED(system.client->Start())) {
-      system.Reset();
+    if (has_system && FAILED(system_audio.client->Start())) {
+      system_audio.Reset();
       has_system = false;
     }
     promise.set_value({true, has_system, {}});
     while (active_) {
       Drain(&microphone, &microphone_queue_, "microphone");
-      if (has_system) Drain(&system, &system_queue_, "system");
+      if (has_system) Drain(&system_audio, &system_queue_, "system");
       Sleep(8);
     }
     microphone.client->Stop();
-    if (has_system) system.client->Stop();
+    if (has_system) system_audio.client->Stop();
     microphone.Reset();
-    system.Reset();
+    system_audio.Reset();
     if (SUCCEEDED(com)) CoUninitialize();
   }
 
@@ -338,7 +340,7 @@ class WasapiRecorder {
   void WriterLoop() {
     while (active_ || !microphone_queue_.empty()) {
       std::vector<int16_t> microphone;
-      std::vector<int16_t> system;
+      std::vector<int16_t> system_audio;
       {
         std::unique_lock<std::mutex> lock(queue_mutex_);
         queue_ready_.wait_for(lock, std::chrono::milliseconds(250), [this] {
@@ -348,18 +350,20 @@ class WasapiRecorder {
         microphone = std::move(microphone_queue_.front());
         microphone_queue_.pop_front();
         if (!system_queue_.empty()) {
-          system = std::move(system_queue_.front());
+          system_audio = std::move(system_queue_.front());
           system_queue_.pop_front();
         }
       }
       if (!writing_) continue;
       for (size_t index = 0; index < microphone.size(); ++index) {
         int sample = microphone[index];
-        if (index < system.size()) sample = (sample + system[index]) / 2;
+        if (index < system_audio.size()) {
+          sample = (sample + system_audio[index]) / 2;
+        }
         const int16_t output = static_cast<int16_t>(std::clamp(
             sample, static_cast<int>(INT16_MIN), static_cast<int>(INT16_MAX)));
         output_.write(reinterpret_cast<const char*>(&output), sizeof(output));
-        data_length_ += sizeof(output);
+        data_length_ += static_cast<uint32_t>(sizeof(output));
       }
     }
   }
@@ -387,7 +391,8 @@ void AudioCapturePlugin::RegisterWithRegistrar(
   auto methods = std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
       registrar->messenger(), "audio_capture",
       &flutter::StandardMethodCodec::GetInstance());
-  auto events = std::make_unique<flutter::EventChannel<flutter::EncodableValue>>(
+  auto event_channel =
+      std::make_unique<flutter::EventChannel<flutter::EncodableValue>>(
       registrar->messenger(), "audio_capture/events",
       &flutter::StandardMethodCodec::GetInstance());
   auto plugin = std::make_unique<AudioCapturePlugin>(registrar);
@@ -395,13 +400,14 @@ void AudioCapturePlugin::RegisterWithRegistrar(
       [plugin_pointer = plugin.get()](const auto& call, auto result) {
         plugin_pointer->HandleMethodCall(call, std::move(result));
       });
-  events->SetStreamHandler(std::make_unique<flutter::StreamHandlerFunctions<>>(
-      [plugin_pointer = plugin.get()](const auto* arguments, auto events) {
-        return plugin_pointer->OnListen(arguments, std::move(events));
-      },
-      [plugin_pointer = plugin.get()](const auto* arguments) {
-        return plugin_pointer->OnCancel(arguments);
-      }));
+  event_channel->SetStreamHandler(
+      std::make_unique<flutter::StreamHandlerFunctions<>>(
+          [plugin_pointer = plugin.get()](const auto* arguments, auto sink) {
+            return plugin_pointer->OnListen(arguments, std::move(sink));
+          },
+          [plugin_pointer = plugin.get()](const auto* arguments) {
+            return plugin_pointer->OnCancel(arguments);
+          }));
   registrar->AddPlugin(std::move(plugin));
 }
 
