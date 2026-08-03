@@ -1,0 +1,5 @@
+storePassword=由发布者提供
+keyPassword=由发布者提供
+keyAlias=由发布者提供
+storeFile=/absolute/path/to/release-upload.jks
+

@@ -1,0 +1,5 @@
+{
+  "displayName": "会议纪要",
+  "bundleIdentifier": "com.meetingnotes.app",
+  "windowsExecutable": "easy_meeting.exe"
+}

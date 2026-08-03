@@ -1,0 +1,80 @@
+name: Platform builds
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.44.8
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter build apk --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-release-unsigned
+          path: build/app/outputs/flutter-apk/*release*.apk
+
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.44.8
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter build macos --release
+      - run: bash packaging/macos/create_dmg.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg-unsigned
+          path: build/releases/*.dmg
+
+  ios:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.44.8
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter build ipa --release --no-codesign
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-archive-unsigned
+          path: build/ios/archive/*.xcarchive
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.44.8
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter build windows --release
+      - shell: powershell
+        run: ./packaging/windows/build_msix.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-msix-unsigned
+          path: build/releases/*.msix
+
