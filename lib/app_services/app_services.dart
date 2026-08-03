@@ -3,15 +3,12 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
-import '../domain/summary/summary_service.dart';
 import '../domain/models/meeting_record.dart';
-import '../domain/models/note_template.dart';
-import '../domain/models/recording_asset.dart';
+import '../domain/summary/summary_service.dart';
 import '../domain/transcription/transcription_service.dart';
 import '../domain/transcription/wav_slicer.dart';
 import '../infrastructure/database/app_database.dart';
 import '../infrastructure/diagnostics/diagnostic_reporter.dart';
-import '../infrastructure/files/file_digest.dart';
 import '../infrastructure/network/openai_compatible_client.dart';
 import '../infrastructure/notifications/completion_notifier.dart';
 import '../infrastructure/repositories/note_repository.dart';
@@ -27,6 +24,7 @@ import 'processing_pipeline.dart';
 import 'persistent_meeting_capture.dart';
 import 'post_processing_queue.dart';
 import 'recording_coordinator.dart';
+import 'recording_recovery_service.dart';
 
 class AppServices {
   AppServices({
@@ -46,7 +44,7 @@ class AppServices {
     required this.meetingAssets,
     required this.processing,
     required this.session,
-    required this.orphanRecordings,
+    required this.recordingRecovery,
   });
 
   final AppDatabase database;
@@ -65,7 +63,7 @@ class AppServices {
   final MeetingAssetLifecycle meetingAssets;
   final ProcessingPipeline processing;
   final MeetingSessionController session;
-  final List<OrphanRecording> orphanRecordings;
+  final RecordingRecoveryService recordingRecovery;
   Future<void>? _processingRecovery;
 
   bool get blocksExit => session.blocksExit;
@@ -74,11 +72,12 @@ class AppServices {
     final database = await AppDatabase.open();
     final notes = await LocalNoteRepository.open(database);
     final meetings = LocalMeetingRepository(database);
+    final orphanDirectory = Directory(
+      p.join(Directory.systemTemp.path, 'EasyMeetingRecordings'),
+    );
     final recordings = await LocalRecordingRepository.open(
       database,
-      orphanDirectory: Directory(
-        p.join(Directory.systemTemp.path, 'EasyMeetingRecordings'),
-      ),
+      orphanDirectory: orphanDirectory,
     );
     final transcripts = await LocalTranscriptRepository.open(database);
     final jobs = LocalProcessingJobRepository(database);
@@ -141,9 +140,12 @@ class AppServices {
     await recordings.purgeExpired();
     await transcripts.purgeExpired();
     await meetingAssets.purgeExpired();
-    final orphanRecordings = await _recoverFinalizedRecordings(
-      meetings,
-      recordings,
+    await _reconcileInterruptedDrafts(meetings, recordings);
+    final recordingRecovery = RecordingRecoveryService(
+      meetings: meetings,
+      recordings: recordings,
+      allowedDirectories: [recordings.baseDirectory, orphanDirectory],
+      initialRecordings: await recordings.scanOrphans(),
     );
     return AppServices(
       database: database,
@@ -162,11 +164,11 @@ class AppServices {
       meetingAssets: meetingAssets,
       processing: processing,
       session: session,
-      orphanRecordings: orphanRecordings,
+      recordingRecovery: recordingRecovery,
     );
   }
 
-  static Future<List<OrphanRecording>> _recoverFinalizedRecordings(
+  static Future<void> _reconcileInterruptedDrafts(
     MeetingRepository meetings,
     RecordingRepository recordings,
   ) async {
@@ -176,34 +178,6 @@ class AppServices {
       final asset = await recordings.loadForMeeting(meeting.id);
       if (asset != null) await meetings.markRecorded(meeting.id, asset);
     }
-    final unresolved = <OrphanRecording>[];
-    for (final orphan in await recordings.scanOrphans()) {
-      final stem = p.basenameWithoutExtension(orphan.path);
-      final meetingId = 'recovered-$stem';
-      try {
-        if (await meetings.load(meetingId) == null) {
-          await meetings.create(
-            MeetingDraft(
-              id: meetingId,
-              startedAt: orphan.modifiedAt,
-              templateSnapshot: NoteTemplate.builtins.first,
-            ),
-          );
-        }
-        final asset = await recordings.importNativeResult(
-          meetingId,
-          NativeRecordingResult(
-            path: orphan.path,
-            duration: Duration.zero,
-            sourceProfile: AudioCaptureProfile.legacyUnknown,
-            sha256: await calculateSha256(File(orphan.path)),
-          ),
-        );
-        await meetings.markRecorded(meetingId, asset);
-      } on Object {
-        unresolved.add(orphan);
-      }
-    }
     // No native capture can still be active during cold start. Remove stale
     // draft rows that have no durable asset; recovered WAVs appear separately.
     for (final meeting in existingMeetings) {
@@ -212,7 +186,6 @@ class AppServices {
         await meetings.deleteDraft(meeting.id);
       }
     }
-    return unresolved;
   }
 
   Future<void> resumeProcessing() =>
@@ -238,6 +211,7 @@ class AppServices {
     liveTranscription.dispose();
     recording.dispose();
     processing.dispose();
+    recordingRecovery.dispose();
     if (providerStillRunning) {
       unawaited(
         postProcessing.waitUntilIdle().then((_) async {

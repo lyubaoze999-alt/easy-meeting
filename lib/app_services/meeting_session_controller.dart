@@ -136,8 +136,8 @@ class MeetingSessionController extends ChangeNotifier {
            capturePort ?? RecordingCoordinatorMeetingCapturePort(recording),
        _liveTranscript = liveTranscript,
        _postProcessingQueue = postProcessingQueue {
-    recording.addListener(_forwardChildChange);
-    processing.addListener(_forwardChildChange);
+    recording.addListener(_forwardRecordingChange);
+    processing.addListener(_forwardLegacyProcessingChange);
     postProcessingQueue?.addListener(_syncTypedPostProcessing);
     _liveEvents = liveTranscript?.events.listen(_handleLiveEvent);
   }
@@ -205,6 +205,9 @@ class MeetingSessionController extends ChangeNotifier {
   Future<void> initialize() {
     if (_initialized) return Future<void>.value();
     _initialized = true;
+    // Typed jobs are the sole post-processing executor in the product path.
+    // Do not let the retained legacy pipeline race it or overwrite its state.
+    if (_postProcessingQueue != null) return Future<void>.value();
     _beginPostProcessingCommand(PostProcessingPhase.queued);
     return _initializePostProcessing();
   }
@@ -655,6 +658,7 @@ class MeetingSessionController extends ChangeNotifier {
   }
 
   void _syncPostProcessing() {
+    if (_postProcessingQueue != null) return;
     final job = processing.currentJob;
     _setState(
       _state.copyWith(
@@ -770,14 +774,16 @@ class MeetingSessionController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void _forwardChildChange() {
+  void _forwardRecordingChange() => notifyListeners();
+
+  void _forwardLegacyProcessingChange() {
     _syncPostProcessing();
   }
 
   @override
   void dispose() {
-    recording.removeListener(_forwardChildChange);
-    processing.removeListener(_forwardChildChange);
+    recording.removeListener(_forwardRecordingChange);
+    processing.removeListener(_forwardLegacyProcessingChange);
     _postProcessingQueue?.removeListener(_syncTypedPostProcessing);
     final liveEvents = _liveEvents;
     _liveEvents = null;

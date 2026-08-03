@@ -2,7 +2,13 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:drift/native.dart';
+import 'package:audio_capture/audio_capture.dart';
+import 'package:audio_capture/audio_capture_platform_interface.dart';
+import 'package:easy_meeting/app_services/meeting_session_controller.dart';
+import 'package:easy_meeting/app_services/meeting_session_state.dart';
 import 'package:easy_meeting/app_services/post_processing_queue.dart';
+import 'package:easy_meeting/app_services/processing_pipeline.dart';
+import 'package:easy_meeting/app_services/recording_coordinator.dart';
 import 'package:easy_meeting/domain/models/configuration.dart';
 import 'package:easy_meeting/domain/models/meeting_note.dart';
 import 'package:easy_meeting/domain/models/meeting_record.dart';
@@ -20,6 +26,7 @@ import 'package:easy_meeting/infrastructure/repositories/processing_job_reposito
 import 'package:easy_meeting/infrastructure/repositories/recording_repository.dart';
 import 'package:easy_meeting/infrastructure/repositories/transcript_repository.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/foundation.dart';
 
 void main() {
   late Directory directory;
@@ -34,6 +41,46 @@ void main() {
 
   tearDown(() async {
     await directory.delete(recursive: true);
+  });
+
+  test('recording notifications cannot overwrite typed queue state', () async {
+    final queue = fixture.queue();
+    final recording = RecordingCoordinator(
+      capture: AudioCapture(platform: _PassiveCapturePlatform()),
+    );
+    final legacy = _InactiveLegacyPipeline();
+    final session = MeetingSessionController(
+      recording: recording,
+      processing: legacy,
+      capturePort: _UnusedCapturePort(),
+      postProcessingQueue: queue,
+    );
+    addTearDown(() {
+      session.dispose();
+      recording.dispose();
+      legacy.dispose();
+      queue.dispose();
+    });
+    await session.initialize();
+    queue.currentJob = ProcessingJob(
+      id: 'typed-active',
+      audioPath: fixture.recordings.assets[fixture.meeting.id]!.path,
+      template: fixture.meeting.templateSnapshot,
+      startedAt: fixture.meeting.startedAt,
+      duration: fixture.meeting.duration,
+      highlights: const [],
+      stage: ProcessingStage.transcribing,
+      updatedAt: DateTime.utc(2026, 8, 3),
+      meetingId: fixture.meeting.id,
+      jobType: JobType.transcriptFull,
+      checkpoint: const {'postProcessingStage': 'processing'},
+    );
+    queue.notifyListeners();
+    expect(session.state.postProcessingPhase, PostProcessingPhase.transcribing);
+
+    recording.reset();
+
+    expect(session.state.postProcessingPhase, PostProcessingPhase.transcribing);
   });
 
   test(
@@ -132,6 +179,7 @@ void main() {
           },
     );
     final job = await queue.enqueueTranscript(fixture.meeting.id);
+    final running = queue.resumePending();
     await started.future;
 
     await queue.checkpointAndStop().timeout(const Duration(seconds: 1));
@@ -139,7 +187,7 @@ void main() {
     expect(checkpoint?.postProcessingStage, PostProcessingStage.uploading);
 
     release.complete();
-    await queue.waitUntilIdle();
+    await running;
     final afterProvider = await fixture.jobs.load(job.id);
     expect(afterProvider?.postProcessingStage, PostProcessingStage.uploading);
     expect(fixture.transcripts.documents, isEmpty);
@@ -758,6 +806,49 @@ class _FakeTranscriptRepository
   @override
   Future<List<TranscriptSegment>> segments(String transcriptId) async =>
       const [];
+}
+
+class _PassiveCapturePlatform extends AudioCapturePlatform {
+  @override
+  Stream<Map<String, Object?>> get events => const Stream.empty();
+
+  @override
+  Stream<AudioFrame> get pcmFrames => const Stream.empty();
+
+  @override
+  Future<Map<String, Object?>> start() async => const <String, Object?>{};
+
+  @override
+  Future<void> pause() async {}
+
+  @override
+  Future<void> resume() async {}
+
+  @override
+  Future<String> stop() async => '/tmp/unused.wav';
+
+  @override
+  Future<Map<String, Object?>> permissionStatus() async => const {};
+
+  @override
+  Future<void> openPermissionSettings({String? permission}) async {}
+}
+
+class _UnusedCapturePort implements MeetingCapturePort {
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _InactiveLegacyPipeline extends ChangeNotifier
+    implements ProcessingPipelinePort {
+  @override
+  ProcessingJob? get currentJob => null;
+
+  @override
+  ProcessingStage get stage => ProcessingStage.done;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _FakeNoteRepository implements NoteRepository {

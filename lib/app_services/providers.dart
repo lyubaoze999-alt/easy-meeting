@@ -10,6 +10,7 @@ import '../domain/models/recording_asset.dart';
 import '../domain/models/transcript_document.dart';
 import 'app_services.dart';
 import 'meeting_asset_lifecycle.dart';
+import 'recording_recovery_service.dart';
 
 final appServicesProvider = Provider<AppServices>(
   (ref) => throw StateError('AppServices 尚未初始化。'),
@@ -30,6 +31,11 @@ final liveTranscriptionProvider = ChangeNotifierProvider(
 final postProcessingProvider = Provider(
   (ref) => ref.watch(appServicesProvider).postProcessing,
 );
+
+final recordingRecoveryProvider =
+    ChangeNotifierProvider<RecordingRecoveryService>(
+      (ref) => ref.watch(appServicesProvider).recordingRecovery,
+    );
 
 final settingsProvider =
     StateNotifierProvider<SettingsController, AsyncValue<AppSettings>>(

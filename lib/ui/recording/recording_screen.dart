@@ -12,6 +12,7 @@ import '../../app_services/providers.dart';
 import '../../domain/models/configuration.dart';
 import '../../domain/models/note_template.dart';
 import '../../domain/models/processing_job.dart';
+import '../../domain/models/recording_asset.dart';
 import '../../domain/models/transcript_document.dart';
 import 'live_transcript_panel.dart';
 import 'meeting_workspace.dart';
@@ -30,6 +31,7 @@ class _RecordingScreenState extends ConsumerState<RecordingScreen> {
   final Set<String> _postProcessingMeetings = <String>{};
   final Map<String, TranscriptDocument> _generatedTranscripts =
       <String, TranscriptDocument>{};
+  bool _recoveryDeferred = false;
 
   @override
   Widget build(BuildContext context) {
@@ -39,6 +41,7 @@ class _RecordingScreenState extends ConsumerState<RecordingScreen> {
     final recording = session.recording;
     final phase = session.state.capturePhase;
     final realtime = settings?.realtimeTranscription;
+    final recovery = ref.watch(recordingRecoveryProvider);
     final supportsRealtimePcm = ref
         .watch(platformProfileProvider)
         .supportsRealtimePcm;
@@ -63,12 +66,15 @@ class _RecordingScreenState extends ConsumerState<RecordingScreen> {
             realtime: realtime,
             liveRequested: _liveRequested!,
             realtimeSupported: supportsRealtimePcm,
-            unresolvedRecordingCount: ref
-                .watch(appServicesProvider)
-                .orphanRecordings
-                .length,
+            orphanRecordings: _recoveryDeferred
+                ? const <OrphanRecording>[]
+                : recovery.pending,
+            isRecordingRecoveryBusy: recovery.isProcessing,
             onTemplateChanged: (value) => setState(() => _template = value),
             onLiveChanged: (value) => setState(() => _liveRequested = value),
+            onArchiveRecording: _archiveRecording,
+            onDeleteRecording: _confirmDeleteRecording,
+            onDeferRecovery: () => setState(() => _recoveryDeferred = true),
             onStart: () => _startMeeting(session, realtime),
           ),
           CapturePhase.starting => const _TransitionPanel(
@@ -257,6 +263,37 @@ class _RecordingScreenState extends ConsumerState<RecordingScreen> {
     }
   }
 
+  Future<void> _archiveRecording(OrphanRecording orphan) => _run(() async {
+    await ref.read(recordingRecoveryProvider).archive(orphan);
+    ref.invalidate(meetingLibraryProvider);
+    _message('录音已归档到会议库。');
+  });
+
+  Future<void> _confirmDeleteRecording(OrphanRecording orphan) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('永久删除这个录音？'),
+        content: const Text('此操作无法撤销。建议先归档，确认不需要后再删除。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('永久删除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await _run(() async {
+      await ref.read(recordingRecoveryProvider).discard(orphan);
+      _message('未归档录音已永久删除。');
+    });
+  }
+
   void _message(String text) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
@@ -289,9 +326,13 @@ class _PreparationPanel extends StatelessWidget {
     required this.realtime,
     required this.liveRequested,
     required this.realtimeSupported,
-    required this.unresolvedRecordingCount,
+    required this.orphanRecordings,
+    required this.isRecordingRecoveryBusy,
     required this.onTemplateChanged,
     required this.onLiveChanged,
+    required this.onArchiveRecording,
+    required this.onDeleteRecording,
+    required this.onDeferRecovery,
     required this.onStart,
   });
 
@@ -299,9 +340,13 @@ class _PreparationPanel extends StatelessWidget {
   final RealtimeServiceConfig? realtime;
   final bool liveRequested;
   final bool realtimeSupported;
-  final int unresolvedRecordingCount;
+  final List<OrphanRecording> orphanRecordings;
+  final bool Function(OrphanRecording) isRecordingRecoveryBusy;
   final ValueChanged<NoteTemplate> onTemplateChanged;
   final ValueChanged<bool> onLiveChanged;
+  final ValueChanged<OrphanRecording> onArchiveRecording;
+  final ValueChanged<OrphanRecording> onDeleteRecording;
+  final VoidCallback onDeferRecovery;
   final VoidCallback onStart;
 
   @override
@@ -334,13 +379,88 @@ class _PreparationPanel extends StatelessWidget {
               },
             ),
             const SizedBox(height: 14),
-            if (unresolvedRecordingCount > 0) ...[
+            if (orphanRecordings.isNotEmpty) ...[
               Card(
                 color: Theme.of(context).colorScheme.errorContainer,
-                child: ListTile(
-                  leading: const Icon(Icons.warning_amber_outlined),
-                  title: Text('发现 $unresolvedRecordingCount 个未完成的录音文件'),
-                  subtitle: const Text('应用已保留这些文件；请在导出诊断包后联系支持进行修复。'),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.warning_amber_outlined),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              '发现 ${orphanRecordings.length} 个待恢复录音',
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      const Text('它们不会被自动上传或创建会议，请逐个选择如何处理。'),
+                      const SizedBox(height: 10),
+                      for (final orphan in orphanRecordings)
+                        Card.outlined(
+                          child: Column(
+                            children: [
+                              ListTile(
+                                leading: isRecordingRecoveryBusy(orphan)
+                                    ? const SizedBox.square(
+                                        dimension: 22,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : const Icon(Icons.audio_file_outlined),
+                                title: Text(
+                                  orphan.path
+                                      .split(Platform.pathSeparator)
+                                      .last,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                subtitle: Text(
+                                  '${(orphan.byteLength / 1024 / 1024).toStringAsFixed(1)} MB · ${orphan.modifiedAt.toLocal()}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+                                child: OverflowBar(
+                                  alignment: MainAxisAlignment.end,
+                                  spacing: 6,
+                                  children: [
+                                    TextButton(
+                                      onPressed: isRecordingRecoveryBusy(orphan)
+                                          ? null
+                                          : () => onDeleteRecording(orphan),
+                                      child: const Text('删除文件'),
+                                    ),
+                                    FilledButton.tonal(
+                                      onPressed: isRecordingRecoveryBusy(orphan)
+                                          ? null
+                                          : () => onArchiveRecording(orphan),
+                                      child: const Text('归档到会议库'),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton(
+                          onPressed: onDeferRecovery,
+                          child: const Text('稍后处理'),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
               const SizedBox(height: 14),
