@@ -19,6 +19,7 @@ class PlatformProfile {
 
   bool get hasResidentEntry => form == DeviceForm.desktop;
   bool get supportsSystemAudio => audio == AudioCapability.dualSource;
+  bool get supportsRealtimePcm => platform == PlatformKind.macos;
 
   static PlatformProfile current() {
     final platform = Platform.isMacOS

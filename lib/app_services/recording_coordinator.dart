@@ -4,6 +4,7 @@ import 'package:audio_capture/audio_capture.dart';
 import 'package:flutter/foundation.dart';
 
 import '../domain/models/note_template.dart';
+import '../domain/models/recording_asset.dart';
 
 enum RecordingState { idle, recording, paused, finished }
 
@@ -14,12 +15,24 @@ class RecordingResult {
     required this.duration,
     required this.highlights,
     required this.template,
+    this.nativeSessionId = '',
+    this.sourceProfile = AudioCaptureProfile.legacyUnknown,
   });
   final String audioPath;
   final DateTime startedAt;
   final Duration duration;
   final List<Duration> highlights;
   final NoteTemplate template;
+  final String nativeSessionId;
+  final AudioCaptureProfile sourceProfile;
+
+  NativeRecordingResult toNativeResult({String? sha256}) =>
+      NativeRecordingResult(
+        path: audioPath,
+        duration: duration,
+        sourceProfile: sourceProfile,
+        sha256: sha256,
+      );
 }
 
 class RecordingCoordinator extends ChangeNotifier {
@@ -58,6 +71,7 @@ class RecordingCoordinator extends ChangeNotifier {
   bool microphoneAvailable = false;
   String? degradationReason;
   String? errorMessage;
+  String? nativeSessionId;
   DateTime? _startedAt;
   DateTime? _segmentStartedAt;
   Duration _accumulated = Duration.zero;
@@ -65,6 +79,7 @@ class RecordingCoordinator extends ChangeNotifier {
   bool _operationInFlight = false;
 
   bool get operationInFlight => _operationInFlight;
+  Stream<AudioFrame> get pcmFrames => _capture.pcmFrames;
 
   Duration get elapsed {
     if (_segmentStartedAt == null) return _accumulated;
@@ -79,6 +94,7 @@ class RecordingCoordinator extends ChangeNotifier {
       systemAudioAvailable = result.systemAudioAvailable;
       microphoneAvailable = result.microphoneAvailable;
       degradationReason = result.degradationReason;
+      nativeSessionId = result.nativeSessionId;
       _startedAt = DateTime.now();
       _segmentStartedAt = _startedAt;
       _accumulated = Duration.zero;
@@ -138,6 +154,10 @@ class RecordingCoordinator extends ChangeNotifier {
         duration: _accumulated,
         highlights: List.unmodifiable(highlights),
         template: selectedTemplate,
+        nativeSessionId: nativeSessionId ?? '',
+        sourceProfile: systemAudioAvailable
+            ? AudioCaptureProfile.dualSource
+            : AudioCaptureProfile.microphoneOnly,
       );
     } catch (error) {
       if (wasRecording && _segmentStartedAt == null) {
@@ -180,6 +200,7 @@ class RecordingCoordinator extends ChangeNotifier {
     systemLevel = 0;
     microphoneLevel = 0;
     errorMessage = null;
+    nativeSessionId = null;
     notifyListeners();
   }
 

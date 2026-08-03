@@ -4,6 +4,8 @@ import 'package:dio/dio.dart';
 
 import '../../domain/models/configuration.dart';
 
+typedef ServiceApiKeyProvider = Future<String> Function(String reference);
+
 class OpenAIClientException implements Exception {
   const OpenAIClientException(this.code, this.message);
   final String code;
@@ -14,10 +16,14 @@ class OpenAIClientException implements Exception {
 }
 
 class OpenAICompatibleClient {
-  OpenAICompatibleClient({Dio? dio, this.timeout = const Duration(minutes: 3)})
-    : _dio = dio ?? Dio();
+  OpenAICompatibleClient({
+    Dio? dio,
+    this.timeout = const Duration(minutes: 3),
+    this.apiKeyProvider,
+  }) : _dio = dio ?? Dio();
   final Dio _dio;
   final Duration timeout;
+  final ServiceApiKeyProvider? apiKeyProvider;
 
   Future<Map<String, Object?>> postJson(
     String path,
@@ -74,6 +80,12 @@ class OpenAICompatibleClient {
     if (!config.isConfigured) {
       throw const OpenAIClientException('missing_configuration', '服务配置不完整。');
     }
+    final apiKey = config.apiKey.trim().isNotEmpty
+        ? config.apiKey.trim()
+        : await apiKeyProvider?.call(config.secretReference) ?? '';
+    if (apiKey.isEmpty) {
+      throw const OpenAIClientException('missing_api_key', '服务密钥不可用。');
+    }
     try {
       return await _dio.request<Object?>(
         _join(config.baseUrl, path),
@@ -81,7 +93,7 @@ class OpenAICompatibleClient {
         options: Options(
           method: method,
           contentType: contentType,
-          headers: {'Authorization': 'Bearer ${config.apiKey}'},
+          headers: {'Authorization': 'Bearer $apiKey'},
           connectTimeout: timeout,
           receiveTimeout: timeout,
           sendTimeout: timeout,

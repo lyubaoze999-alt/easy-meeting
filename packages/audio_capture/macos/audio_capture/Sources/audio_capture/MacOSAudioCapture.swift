@@ -20,15 +20,20 @@ enum MacAudioError: LocalizedError {
 struct MacAudioAvailability {
   let systemAudio: Bool
   let microphone: Bool
+  let sessionId: String
   let degradationReason: String?
 }
 
 final class MacOSAudioCapture {
   var onEvent: ((String, Any) -> Void)?
+  var onPCMFrame: ((NativePCMFrame) -> Void)? {
+    didSet { pcmFramePump.onFrame = onPCMFrame }
+  }
 
   private var engine: AVAudioEngine?
   private var mixer: AVAudioMixerNode?
   private let ringBuffer = AudioRingBuffer()
+  private let pcmFramePump = PCMFramePump()
   private let fileLock = NSLock()
   private var systemTap: AnyObject?
   private var sourceNode: AVAudioSourceNode?
@@ -55,18 +60,20 @@ final class MacOSAudioCapture {
     let directory = FileManager.default.temporaryDirectory
       .appendingPathComponent("EasyMeetingRecordings", isDirectory: true)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    let url = directory.appendingPathComponent("\(UUID().uuidString).wav")
+    let sessionId = UUID().uuidString
+    let url = directory.appendingPathComponent("\(sessionId).wav")
     outputURL = url
     do {
       outputFile = try AVAudioFile(forWriting: url, settings: [
         AVFormatIDKey: kAudioFormatLinearPCM,
-        AVSampleRateKey: 16_000,
+        AVSampleRateKey: PCMFramePump.sampleRate,
         AVNumberOfChannelsKey: 1,
         AVLinearPCMBitDepthKey: 16,
         AVLinearPCMIsFloatKey: false,
         AVLinearPCMIsBigEndianKey: false,
         AVLinearPCMIsNonInterleaved: false
-      ])
+      ], commonFormat: .pcmFormatInt16, interleaved: false)
+      pcmFramePump.start(sessionId: sessionId)
 
       let input = engine.inputNode
       let micFormat = input.inputFormat(forBus: 0)
@@ -96,10 +103,12 @@ final class MacOSAudioCapture {
       return MacAudioAvailability(
         systemAudio: hasSystemAudio,
         microphone: true,
+        sessionId: sessionId,
         degradationReason: degradationReason(hasSystemAudio: hasSystemAudio)
       )
     } catch {
       setWriting(false)
+      pcmFramePump.cancel()
       cleanup()
       try? FileManager.default.removeItem(at: url)
       outputURL = nil
@@ -114,6 +123,7 @@ final class MacOSAudioCapture {
     guard running, let outputURL else { throw MacAudioError.notRunning }
     setWriting(false)
     cleanup()
+    _ = pcmFramePump.finishAndWait()
     running = false
     return outputURL
   }
@@ -220,7 +230,17 @@ final class MacOSAudioCapture {
       state.pointee = .haveData
       return buffer
     }
-    if status != .error && output.frameLength > 0 { try? file.write(from: output) }
+    guard status != .error, output.frameLength > 0 else { return }
+    do {
+      try file.write(from: output)
+      if let channel = output.int16ChannelData?.pointee {
+        pcmFramePump.append(
+          Data(bytes: channel, count: Int(output.frameLength) * MemoryLayout<Int16>.size)
+        )
+      }
+    } catch {
+      writing = false
+    }
   }
 
   private func setWriting(_ value: Bool) {

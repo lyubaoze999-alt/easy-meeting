@@ -1,5 +1,18 @@
 # 桌面端真机验收记录
 
+## 自动化验收（2026-08-03）
+
+- [x] `flutter analyze`：0 issue
+- [x] Flutter 全量测试：76 项通过
+- [x] `audio_capture` 插件 analyze 与 4 项测试通过
+- [x] macOS `PCMFramePump` 原生测试通过；已接入 macOS CI 构建门禁
+- [x] Android release APK 生成成功（58.1 MB）
+- [x] 实时/批量转写并发 revision、跨会议事件隔离、pending connect 取消、退出 drain、暂停队列清理、录音归档重试均有自动化覆盖
+- [ ] macOS release + DMG：待推送后由 `macos-15` GitHub Actions 验证
+- [ ] Windows release + MSIX、iOS no-codesign IPA：待推送后由平台 CI 验证
+
+自动化通过不替代下列桌面真机音频验收。
+
 ## macOS 13.0+
 
 - [ ] macOS 13.0–14.3 可启动并明确降级为仅麦克风录音

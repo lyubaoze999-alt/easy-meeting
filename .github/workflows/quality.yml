@@ -15,6 +15,12 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get
-      - run: dart format --output=none --set-exit-if-changed lib test tool
+      - run: dart format --output=none --set-exit-if-changed lib test packages/audio_capture/lib packages/audio_capture/test
       - run: flutter analyze
       - run: flutter test --coverage
+      - name: Verify audio capture package
+        working-directory: packages/audio_capture
+        run: |
+          flutter pub get
+          flutter analyze
+          flutter test

@@ -32,7 +32,7 @@ Future<void> main() async {
       child: const EasyMeetingApp(),
     ),
   );
-  unawaited(services.session.initialize());
+  unawaited(services.resumeProcessing());
   if (Platform.isMacOS || Platform.isWindows) {
     unawaited(DesktopTrayController(services).init());
   }

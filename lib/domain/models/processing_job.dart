@@ -11,6 +11,24 @@ enum ProcessingStage {
   failed,
 }
 
+enum JobType { transcriptRepair, transcriptFull, noteSummary }
+
+/// Durable queue state for the redesigned, independent post-processing jobs.
+///
+/// [ProcessingStage] remains unchanged for the legacy processing pipeline. The
+/// new queue stores this value in [ProcessingJob.checkpoint], so adopting the
+/// queue does not require another database migration.
+enum PostProcessingStage {
+  queued,
+  preparing,
+  uploading,
+  processing,
+  persisting,
+  done,
+  failed,
+  cancelled,
+}
+
 class ProcessingJob {
   const ProcessingJob({
     required this.id,
@@ -27,6 +45,9 @@ class ProcessingJob {
     this.failureCode,
     this.failureMessage,
     this.retryCount = 0,
+    this.meetingId,
+    this.jobType,
+    this.checkpoint = const {},
   });
 
   final String id;
@@ -43,8 +64,22 @@ class ProcessingJob {
   final String? failureCode;
   final String? failureMessage;
   final int retryCount;
+  final String? meetingId;
+  final JobType? jobType;
+  final Map<String, Object?> checkpoint;
 
-  bool get isRecoverable => stage != ProcessingStage.done;
+  PostProcessingStage? get postProcessingStage {
+    final name = checkpoint['postProcessingStage'];
+    if (name is! String) return null;
+    for (final value in PostProcessingStage.values) {
+      if (value.name == name) return value;
+    }
+    return null;
+  }
+
+  bool get isRecoverable =>
+      stage != ProcessingStage.done &&
+      postProcessingStage != PostProcessingStage.cancelled;
 
   ProcessingJob copyWith({
     ProcessingStage? stage,
@@ -56,6 +91,9 @@ class ProcessingJob {
     String? failureMessage,
     int? retryCount,
     bool clearFailure = false,
+    String? meetingId,
+    JobType? jobType,
+    Map<String, Object?>? checkpoint,
   }) => ProcessingJob(
     id: id,
     audioPath: audioPath,
@@ -71,9 +109,13 @@ class ProcessingJob {
     failureCode: clearFailure ? null : failureCode ?? this.failureCode,
     failureMessage: clearFailure ? null : failureMessage ?? this.failureMessage,
     retryCount: retryCount ?? this.retryCount,
+    meetingId: meetingId ?? this.meetingId,
+    jobType: jobType ?? this.jobType,
+    checkpoint: checkpoint ?? this.checkpoint,
   );
 
   String get templateJson => jsonEncode(template.toJson());
   String get highlightsJson =>
       jsonEncode(highlights.map((item) => item.inMilliseconds).toList());
+  String get checkpointJson => jsonEncode(checkpoint);
 }

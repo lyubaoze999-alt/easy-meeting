@@ -1,5 +1,6 @@
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
+import 'audio_frame.dart';
 import 'audio_capture_method_channel.dart';
 
 abstract class AudioCapturePlatform extends PlatformInterface {
@@ -25,6 +26,9 @@ abstract class AudioCapturePlatform extends PlatformInterface {
 
   Stream<Map<String, Object?>> get events =>
       throw UnimplementedError('events has not been implemented.');
+
+  Stream<AudioFrame> get pcmFrames =>
+      throw UnimplementedError('pcmFrames has not been implemented.');
 
   Future<Map<String, Object?>> start() =>
       throw UnimplementedError('start has not been implemented.');

@@ -48,6 +48,8 @@ dependencies:
   window_manager: ^0.5.2
   permission_handler: ^12.0.3
   archive: ^4.0.9
+  crypto: ^3.0.6
+  web_socket_channel: ^3.0.3
   audio_capture:
     path: packages/audio_capture
 

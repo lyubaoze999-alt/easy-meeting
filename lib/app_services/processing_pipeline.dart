@@ -107,7 +107,10 @@ class ProcessingPipeline extends ChangeNotifier
     });
   }
 
-  Future<List<ProcessingJob>> recoverableJobs() => jobRepository.recoverable();
+  Future<List<ProcessingJob>> recoverableJobs() async =>
+      (await jobRepository.recoverable())
+          .where((job) => job.jobType == null)
+          .toList(growable: false);
 
   @override
   Future<void> abandonCurrent() async {

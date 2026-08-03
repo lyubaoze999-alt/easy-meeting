@@ -49,6 +49,27 @@ void main() {
     expect(config.toPublicJson().keys, isNot(contains('apiKey')));
   });
 
+  test(
+    'realtime configuration persists only a secure-storage reference state',
+    () {
+      const config = RealtimeServiceConfig(
+        websocketUrl: 'wss://api.openai.com/v1/realtime',
+        model: 'realtime-model',
+        enabled: true,
+        uploadConsentGranted: true,
+        hasApiKey: true,
+        language: 'zh-CN',
+        keywords: ['Easy Meeting'],
+      );
+
+      final json = jsonEncode(config.toPublicJson());
+      expect(config.canStream, isTrue);
+      expect(json, isNot(contains('sk-')));
+      expect(json, isNot(contains('apiKey')));
+      expect(json, isNot(contains(RealtimeServiceConfig.secretReference)));
+    },
+  );
+
   test('macOS compatibility falls back to microphone before 14.4', () {
     final legacy = PlatformProfile.resolve(
       platform: PlatformKind.macos,
@@ -62,10 +83,13 @@ void main() {
       platform: PlatformKind.macos,
       operatingSystemVersion: 'Version 26.5.2 (Build 25F84)',
     );
+    final windows = PlatformProfile.resolve(platform: PlatformKind.windows);
 
     expect(legacy.audio, AudioCapability.micOnly);
     expect(processTap.audio, AudioCapability.dualSource);
     expect(future.audio, AudioCapability.dualSource);
+    expect(processTap.supportsRealtimePcm, isTrue);
+    expect(windows.supportsRealtimePcm, isFalse);
   });
 
   test(

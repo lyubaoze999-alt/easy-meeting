@@ -1,443 +1,399 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:window_manager/window_manager.dart';
 
-import '../../app_services/providers.dart';
+import '../../app_services/live_transcription_controller.dart';
+import '../../app_services/managed_live_transcription_session.dart';
 import '../../app_services/meeting_session_controller.dart';
-import '../../app_services/processing_pipeline.dart';
-import '../../app_services/recording_coordinator.dart';
+import '../../app_services/meeting_session_state.dart';
+import '../../app_services/providers.dart';
+import '../../domain/models/configuration.dart';
 import '../../domain/models/note_template.dart';
 import '../../domain/models/processing_job.dart';
+import '../../domain/models/transcript_document.dart';
+import 'live_transcript_panel.dart';
+import 'meeting_workspace.dart';
+import 'recording_saved_panel.dart';
 
-class RecordingScreen extends ConsumerWidget {
+class RecordingScreen extends ConsumerStatefulWidget {
   const RecordingScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<RecordingScreen> createState() => _RecordingScreenState();
+}
+
+class _RecordingScreenState extends ConsumerState<RecordingScreen> {
+  NoteTemplate _template = NoteTemplate.builtins.first;
+  bool? _liveRequested;
+  final Set<String> _postProcessingMeetings = <String>{};
+  final Map<String, TranscriptDocument> _generatedTranscripts =
+      <String, TranscriptDocument>{};
+
+  @override
+  Widget build(BuildContext context) {
     final session = ref.watch(meetingSessionProvider);
+    final live = ref.watch(liveTranscriptionProvider);
+    final settings = ref.watch(settingsProvider).valueOrNull;
     final recording = session.recording;
-    final processing = session.processing;
-    final notes = ref.watch(notesProvider).valueOrNull ?? const [];
+    final phase = session.state.capturePhase;
+    final realtime = settings?.realtimeTranscription;
+    final supportsRealtimePcm = ref
+        .watch(platformProfileProvider)
+        .supportsRealtimePcm;
+    _liveRequested ??= supportsRealtimePcm && (realtime?.enabled ?? false);
+
     return Scaffold(
-      appBar: AppBar(title: const Text('会议纪要')),
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(28),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 680),
-            child: switch (session.phase) {
-              MeetingSessionPhase.initializing => const _TransitionPanel(
-                icon: Icons.sync,
-                title: '正在恢复未完成任务',
-                message: '检查本地处理检查点，请稍候。',
-              ),
-              MeetingSessionPhase.ready => _IdlePanel(
-                recentNotes: notes.take(3).map((item) => item.title).toList(),
-                onStart: () => _run(context, session.startRecording),
-              ),
-              MeetingSessionPhase.starting => const _TransitionPanel(
-                icon: Icons.mic_none,
-                title: '正在启动录音',
-                message: '正在连接系统声音与麦克风。',
-              ),
-              MeetingSessionPhase.recording ||
-              MeetingSessionPhase.pausing ||
-              MeetingSessionPhase.paused ||
-              MeetingSessionPhase.resuming ||
-              MeetingSessionPhase.stopping => _RecordingPanel(
-                coordinator: recording,
-                phase: session.phase,
-                onPauseResume: () => _run(
-                  context,
-                  session.phase == MeetingSessionPhase.paused
-                      ? session.resumeRecording
-                      : session.pauseRecording,
-                ),
-                onStop: () async {
-                  try {
-                    await session.stopAndProcess();
-                    ref.invalidate(notesProvider);
-                  } catch (error) {
-                    if (context.mounted) _showError(context, error);
-                  }
-                },
-                onHighlight: session.addHighlight,
-                onTemplateChanged: session.selectTemplate,
-              ),
-              MeetingSessionPhase.processing => _ProcessingPanel(
-                pipeline: processing,
-                onRetry: null,
-                onNext: null,
-                onBackground: () => _continueInBackground(context, ref),
-              ),
-              MeetingSessionPhase.failed => _ProcessingPanel(
-                pipeline: processing,
-                forceFailed: true,
-                errorOverride: session.lastError?.toString(),
-                onRetry: processing.currentJob == null
-                    ? null
-                    : () => _run(context, session.retryProcessing),
-                onNext: () async {
-                  await session.prepareNextMeeting();
-                  ref.invalidate(notesProvider);
-                },
-                onBackground: () => _continueInBackground(context, ref),
-              ),
-              MeetingSessionPhase.completed => _ProcessingPanel(
-                pipeline: processing,
-                onRetry: null,
-                onNext: () async {
-                  await session.prepareNextMeeting();
-                  ref.invalidate(notesProvider);
-                },
-                onBackground: () => _continueInBackground(context, ref),
-              ),
-            },
+      appBar: AppBar(
+        title: const Text('会议纪要'),
+        actions: [
+          if (phase == CapturePhase.recording || phase == CapturePhase.paused)
+            Padding(
+              padding: const EdgeInsets.only(right: 16),
+              child: Center(child: _LiveStatusChip(phase: live.phase)),
+            ),
+        ],
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(20),
+        child: switch (phase) {
+          CapturePhase.idle => _PreparationPanel(
+            template: _template,
+            realtime: realtime,
+            liveRequested: _liveRequested!,
+            realtimeSupported: supportsRealtimePcm,
+            unresolvedRecordingCount: ref
+                .watch(appServicesProvider)
+                .orphanRecordings
+                .length,
+            onTemplateChanged: (value) => setState(() => _template = value),
+            onLiveChanged: (value) => setState(() => _liveRequested = value),
+            onStart: () => _startMeeting(session, realtime),
           ),
+          CapturePhase.starting => const _TransitionPanel(
+            icon: Icons.mic_none,
+            title: '正在启动录音',
+            message: '先建立本地录音；实时服务稍后独立连接。',
+          ),
+          CapturePhase.recording ||
+          CapturePhase.pausing ||
+          CapturePhase.paused ||
+          CapturePhase.resuming ||
+          CapturePhase.stopping ||
+          CapturePhase.finalizingFile => MeetingWorkspace(
+            elapsed: recording.elapsed,
+            systemLevel: recording.systemLevel,
+            microphoneLevel: recording.microphoneLevel,
+            systemAudioAvailable: recording.systemAudioAvailable,
+            microphoneAvailable: recording.microphoneAvailable,
+            isPaused:
+                phase == CapturePhase.paused || phase == CapturePhase.pausing,
+            transitioning:
+                phase == CapturePhase.pausing ||
+                phase == CapturePhase.resuming ||
+                phase == CapturePhase.stopping ||
+                phase == CapturePhase.finalizingFile,
+            highlightCount: recording.highlights.length,
+            connectionLabel: _liveLabel(live.phase),
+            liveDegradedMessage: _liveDegradedMessage(live.phase),
+            transcriptLines: live.items
+                .where((item) => item.text.trim().isNotEmpty)
+                .map(_lineFromItem)
+                .toList(growable: false),
+            degradationReason: recording.degradationReason,
+            onPauseResume: () => _run(
+              phase == CapturePhase.paused
+                  ? session.resumeRecording
+                  : session.pauseRecording,
+            ),
+            onStop: () => _stopMeeting(session),
+            onHighlight: session.markHighlight,
+          ),
+          CapturePhase.recorded => _savedPanel(session, live),
+          CapturePhase.failed => _FailurePanel(
+            message: '${session.state.captureError ?? '录音未能完成，请检查权限和存储空间。'}',
+            onReset: () => _run(session.prepareNextMeeting),
+          ),
+        },
+      ),
+    );
+  }
+
+  Widget _savedPanel(
+    MeetingSessionController session,
+    ManagedLiveTranscriptionSession live,
+  ) {
+    final asset = ref.read(appServicesProvider).persistentCapture.lastAsset;
+    if (asset == null) {
+      return const _TransitionPanel(
+        icon: Icons.save_outlined,
+        title: '正在确认录音文件',
+        message: '录音不会在确认归档完成前显示为已保存。',
+      );
+    }
+    final stopResult = live.stopResultForMeeting(asset.meetingId);
+    final transcriptStatus = switch ((
+      _postProcessingMeetings.contains(asset.meetingId),
+      live.hasPendingFinalization,
+      stopResult?.outcome,
+    )) {
+      (true, _, _) => SavedTranscriptStatus.processing,
+      (_, true, _) => SavedTranscriptStatus.processing,
+      (_, _, LiveTranscriptionStopOutcome.frozen) =>
+        SavedTranscriptStatus.ready,
+      (_, _, LiveTranscriptionStopOutcome.needsRepair) =>
+        SavedTranscriptStatus.needsRepair,
+      _ when _generatedTranscripts.containsKey(asset.meetingId) =>
+        SavedTranscriptStatus.ready,
+      _ => SavedTranscriptStatus.missing,
+    };
+    final finalTranscript =
+        stopResult?.finalTranscript ?? _generatedTranscripts[asset.meetingId];
+    return RecordingSavedPanel(
+      duration: asset.duration,
+      byteLength: asset.byteLength,
+      sourceLabel: switch (asset.sourceProfile.name) {
+        'dualSource' => '系统声音 + 麦克风',
+        'microphoneOnly' => '仅麦克风',
+        _ => '录音来源未知',
+      },
+      transcriptStatus: transcriptStatus,
+      onPlay: () => unawaited(_openAsset(asset.path)),
+      onReveal: () => unawaited(_revealAsset(asset.path)),
+      onGenerateTranscript: () => _enqueueTranscript(asset.meetingId),
+      onGenerateNote: finalTranscript == null
+          ? null
+          : () => _enqueueSummary(asset.meetingId, finalTranscript.id),
+      onNextMeeting: () => _run(() async {
+        await session.prepareNextMeeting();
+        if (mounted) {
+          setState(() {});
+        }
+        ref.invalidate(meetingLibraryProvider);
+      }),
+    );
+  }
+
+  Future<void> _startMeeting(
+    MeetingSessionController session,
+    RealtimeServiceConfig? realtime,
+  ) {
+    final requested = _liveRequested ?? false;
+    if (requested && !(realtime?.canStream ?? false)) {
+      _message('实时转写尚未完成配置，本场仍会正常保存本地录音。');
+    }
+    return _run(
+      () => session.startMeeting(
+        MeetingStartOptions(
+          enableLiveTranscription: requested && (realtime?.canStream ?? false),
+          template: _template,
         ),
       ),
     );
   }
 
-  static Future<void> _run(
-    BuildContext context,
-    Future<void> Function() action,
-  ) async {
+  Future<void> _stopMeeting(MeetingSessionController session) => _run(() async {
+    await session.stopRecording();
+    ref.invalidate(meetingLibraryProvider);
+  });
+
+  Future<void> _enqueueTranscript(String meetingId) => _run(() async {
+    setState(() => _postProcessingMeetings.add(meetingId));
+    try {
+      final queue = ref.read(postProcessingProvider);
+      final job = await queue.enqueueTranscript(meetingId);
+      _message('正式转写任务已开始，录音可继续正常使用。');
+      await queue.waitUntilIdle();
+      final savedJob = await ref.read(appServicesProvider).jobs.load(job.id);
+      if (savedJob?.stage == ProcessingStage.failed) {
+        throw StateError(savedJob?.failureMessage ?? '正式转写失败，请在会议库中重试。');
+      }
+      final transcript = await ref
+          .read(appServicesProvider)
+          .transcripts
+          .finalForMeeting(meetingId);
+      if (mounted) {
+        setState(() {
+          if (transcript != null) _generatedTranscripts[meetingId] = transcript;
+        });
+        _message('正式转写已完成');
+      }
+      ref.invalidate(meetingLibraryProvider);
+    } finally {
+      if (mounted) {
+        setState(() => _postProcessingMeetings.remove(meetingId));
+      }
+    }
+  });
+
+  Future<void> _enqueueSummary(String meetingId, String transcriptId) => _run(
+    () async {
+      setState(() => _postProcessingMeetings.add(meetingId));
+      try {
+        final queue = ref.read(postProcessingProvider);
+        final job = await queue.enqueueSummary(meetingId, transcriptId);
+        _message('会议纪要生成任务已开始。');
+        await queue.waitUntilIdle();
+        final savedJob = await ref.read(appServicesProvider).jobs.load(job.id);
+        if (savedJob?.stage == ProcessingStage.failed) {
+          throw StateError(savedJob?.failureMessage ?? '会议纪要生成失败，请重试。');
+        }
+        _message('会议纪要已生成，可在会议库查看。');
+        ref.invalidate(meetingLibraryProvider);
+      } finally {
+        if (mounted) {
+          setState(() => _postProcessingMeetings.remove(meetingId));
+        }
+      }
+    },
+  );
+
+  Future<void> _run(Future<void> Function() action) async {
     try {
       await action();
     } catch (error) {
-      if (context.mounted) _showError(context, error);
+      _message('$error');
     }
   }
 
-  static void _showError(BuildContext context, Object error) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text('$error')));
+  void _message(String text) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
   }
 
-  static Future<void> _continueInBackground(
-    BuildContext context,
-    WidgetRef ref,
-  ) async {
-    final granted = await ref
-        .read(appServicesProvider)
-        .notifications
-        .requestPermission();
-    if (!context.mounted) return;
-    if (Platform.isMacOS || Platform.isWindows) {
-      await windowManager.hide();
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(granted ? '处理将在后台尽力继续，完成后通知你。' : '处理将在后台尽力继续；通知权限未开启。'),
-        ),
+  static LiveTranscriptLine _lineFromItem(LiveTranscriptItem item) =>
+      LiveTranscriptLine(
+        time: item.start ?? Duration.zero,
+        text: item.text,
+        isFinal: item.isFinal,
+        itemId: item.itemId,
       );
+
+  static Future<void> _openAsset(String path) async {
+    if (Platform.isMacOS) await Process.run('open', [path]);
+    if (Platform.isWindows) await Process.run('cmd', ['/c', 'start', '', path]);
+  }
+
+  static Future<void> _revealAsset(String path) async {
+    if (Platform.isMacOS) await Process.run('open', ['-R', path]);
+    if (Platform.isWindows) {
+      await Process.run('explorer.exe', ['/select,$path']);
     }
   }
 }
 
-class _IdlePanel extends StatelessWidget {
-  const _IdlePanel({required this.recentNotes, required this.onStart});
-  final List<String> recentNotes;
+class _PreparationPanel extends StatelessWidget {
+  const _PreparationPanel({
+    required this.template,
+    required this.realtime,
+    required this.liveRequested,
+    required this.realtimeSupported,
+    required this.unresolvedRecordingCount,
+    required this.onTemplateChanged,
+    required this.onLiveChanged,
+    required this.onStart,
+  });
+
+  final NoteTemplate template;
+  final RealtimeServiceConfig? realtime;
+  final bool liveRequested;
+  final bool realtimeSupported;
+  final int unresolvedRecordingCount;
+  final ValueChanged<NoteTemplate> onTemplateChanged;
+  final ValueChanged<bool> onLiveChanged;
   final VoidCallback onStart;
 
   @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.stretch,
-    children: [
-      const Icon(Icons.mic_none, size: 72),
-      const SizedBox(height: 20),
-      Text(
-        '准备记录下一场会议',
-        textAlign: TextAlign.center,
-        style: Theme.of(context).textTheme.headlineSmall,
-      ),
-      const SizedBox(height: 8),
-      const Text('同时记录可用的系统声音与麦克风，结束后自动生成纪要。', textAlign: TextAlign.center),
-      const SizedBox(height: 28),
-      FilledButton.icon(
-        onPressed: onStart,
-        icon: const Icon(Icons.fiber_manual_record),
-        label: const Padding(
-          padding: EdgeInsets.symmetric(vertical: 14),
-          child: Text('开始记录'),
-        ),
-      ),
-      if (recentNotes.isNotEmpty) ...[
-        const SizedBox(height: 32),
-        Text('最近纪要', style: Theme.of(context).textTheme.titleMedium),
-        const SizedBox(height: 8),
-        Card(
-          child: Column(
-            children: recentNotes
-                .map(
-                  (title) => ListTile(
-                    leading: const Icon(Icons.description_outlined),
-                    title: Text(title),
-                  ),
-                )
-                .toList(),
-          ),
-        ),
-      ],
-    ],
-  );
-}
-
-class _RecordingPanel extends StatelessWidget {
-  const _RecordingPanel({
-    required this.coordinator,
-    required this.phase,
-    required this.onPauseResume,
-    required this.onStop,
-    required this.onHighlight,
-    required this.onTemplateChanged,
-  });
-  final RecordingCoordinator coordinator;
-  final MeetingSessionPhase phase;
-  final VoidCallback onPauseResume;
-  final VoidCallback onStop;
-  final VoidCallback onHighlight;
-  final ValueChanged<NoteTemplate> onTemplateChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final paused = phase == MeetingSessionPhase.paused;
-    final status = switch (phase) {
-      MeetingSessionPhase.pausing => ('正在暂停录音…', Icons.pause_circle),
-      MeetingSessionPhase.resuming => ('正在继续录音…', Icons.play_circle),
-      MeetingSessionPhase.stopping => ('正在结束并保存录音…', Icons.stop_circle),
-      MeetingSessionPhase.paused => ('录音已暂停', Icons.pause_circle),
-      _ => ('正在录音', Icons.graphic_eq),
-    };
-    final transitioning = switch (phase) {
-      MeetingSessionPhase.pausing ||
-      MeetingSessionPhase.resuming ||
-      MeetingSessionPhase.stopping => true,
-      _ => false,
-    };
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Icon(status.$2, size: 64, color: Theme.of(context).colorScheme.error),
-        const SizedBox(height: 12),
-        Text(
-          status.$1,
-          textAlign: TextAlign.center,
-          style: Theme.of(context).textTheme.headlineSmall,
-        ),
-        Text(
-          _duration(coordinator.elapsed),
-          textAlign: TextAlign.center,
-          style: Theme.of(
-            context,
-          ).textTheme.displaySmall?.copyWith(fontFeatures: const []),
-        ),
-        const SizedBox(height: 24),
-        _LevelRow(
-          label: '系统声音',
-          value: coordinator.systemLevel,
-          unavailable: !coordinator.systemAudioAvailable,
-          silent: coordinator.systemSilent,
-        ),
-        _LevelRow(
-          label: '麦克风',
-          value: coordinator.microphoneLevel,
-          unavailable: !coordinator.microphoneAvailable,
-          silent: coordinator.microphoneSilent,
-        ),
-        if (coordinator.degradationReason != null)
-          Padding(
-            padding: const EdgeInsets.only(top: 8),
-            child: Text(
-              coordinator.degradationReason!,
-              style: TextStyle(color: Theme.of(context).colorScheme.error),
-            ),
-          ),
-        const SizedBox(height: 20),
-        DropdownButtonFormField<NoteTemplate>(
-          initialValue: coordinator.selectedTemplate,
-          decoration: const InputDecoration(labelText: '纪要模板'),
-          items: NoteTemplate.builtins
-              .map(
-                (template) => DropdownMenuItem(
-                  value: template,
-                  child: Text(template.name),
-                ),
-              )
-              .toList(),
-          onChanged: transitioning
-              ? null
-              : (template) {
-                  if (template != null) onTemplateChanged(template);
-                },
-        ),
-        const SizedBox(height: 16),
-        OutlinedButton.icon(
-          onPressed: transitioning ? null : onHighlight,
-          icon: const Icon(Icons.bookmark_add_outlined),
-          label: Text('标记重点（${coordinator.highlights.length}）'),
-        ),
-        const SizedBox(height: 12),
-        Row(
+  Widget build(BuildContext context) => Center(
+    child: SingleChildScrollView(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 680),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: transitioning ? null : onPauseResume,
-                icon: Icon(paused ? Icons.play_arrow : Icons.pause),
-                label: Text(paused ? '继续' : '暂停'),
+            const Icon(Icons.mic_none, size: 68),
+            const SizedBox(height: 16),
+            Text(
+              '准备记录下一场会议',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.headlineSmall,
+            ),
+            const SizedBox(height: 24),
+            DropdownButtonFormField<NoteTemplate>(
+              initialValue: template,
+              decoration: const InputDecoration(labelText: '纪要模板'),
+              items: NoteTemplate.builtins
+                  .map(
+                    (item) =>
+                        DropdownMenuItem(value: item, child: Text(item.name)),
+                  )
+                  .toList(growable: false),
+              onChanged: (value) {
+                if (value != null) onTemplateChanged(value);
+              },
+            ),
+            const SizedBox(height: 14),
+            if (unresolvedRecordingCount > 0) ...[
+              Card(
+                color: Theme.of(context).colorScheme.errorContainer,
+                child: ListTile(
+                  leading: const Icon(Icons.warning_amber_outlined),
+                  title: Text('发现 $unresolvedRecordingCount 个未完成的录音文件'),
+                  subtitle: const Text('应用已保留这些文件；请在导出诊断包后联系支持进行修复。'),
+                ),
+              ),
+              const SizedBox(height: 14),
+            ],
+            Card(
+              child: SwitchListTile(
+                value: liveRequested,
+                onChanged: realtimeSupported ? onLiveChanged : null,
+                secondary: const Icon(Icons.cloud_outlined),
+                title: const Text('会议中显示实时文字'),
+                subtitle: Text(
+                  !realtimeSupported
+                      ? '当前版本仅在 macOS 提供实时 PCM；本平台仍可录音后转写。'
+                      : realtime?.canStream == true
+                      ? '实时服务已配置；本地录音始终独立保存。'
+                      : '尚未完成实时服务配置，仍可只录音。',
+                ),
               ),
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: FilledButton.icon(
-                onPressed: transitioning ? null : onStop,
-                icon: const Icon(Icons.stop),
-                label: const Text('结束并生成纪要'),
+            if (liveRequested)
+              const Padding(
+                padding: EdgeInsets.fromLTRB(12, 6, 12, 16),
+                child: Text('开启后，会议音频片段会在录音过程中持续发送给你配置的服务商。'),
+              ),
+            FilledButton.icon(
+              onPressed: onStart,
+              icon: const Icon(Icons.fiber_manual_record),
+              label: const Padding(
+                padding: EdgeInsets.symmetric(vertical: 14),
+                child: Text('开始录音'),
               ),
             ),
           ],
         ),
-      ],
-    );
-  }
-
-  static String _duration(Duration value) {
-    final hours = value.inHours;
-    final minutes = value.inMinutes.remainder(60).toString().padLeft(2, '0');
-    final seconds = value.inSeconds.remainder(60).toString().padLeft(2, '0');
-    return hours > 0 ? '$hours:$minutes:$seconds' : '$minutes:$seconds';
-  }
-}
-
-class _LevelRow extends StatelessWidget {
-  const _LevelRow({
-    required this.label,
-    required this.value,
-    required this.unavailable,
-    required this.silent,
-  });
-  final String label;
-  final double value;
-  final bool unavailable;
-  final bool silent;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 6),
-    child: Row(
-      children: [
-        SizedBox(width: 88, child: Text(label)),
-        Expanded(child: LinearProgressIndicator(value: value.clamp(0, 1))),
-        const SizedBox(width: 10),
-        Text(unavailable ? '不可用' : (silent ? '静音' : '正常')),
-      ],
+      ),
     ),
   );
 }
 
-class _ProcessingPanel extends StatelessWidget {
-  const _ProcessingPanel({
-    required this.pipeline,
-    required this.onRetry,
-    required this.onNext,
-    required this.onBackground,
-    this.forceFailed = false,
-    this.errorOverride,
-  });
-  final ProcessingPipelinePort pipeline;
-  final VoidCallback? onRetry;
-  final VoidCallback? onNext;
-  final VoidCallback onBackground;
-  final bool forceFailed;
-  final String? errorOverride;
+class _LiveStatusChip extends StatelessWidget {
+  const _LiveStatusChip({required this.phase});
+  final LiveTranscriptPhase phase;
 
   @override
-  Widget build(BuildContext context) {
-    final stage = pipeline.stage;
-    if (stage == ProcessingStage.done && pipeline.generatedNote != null) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const Icon(Icons.check_circle, size: 68, color: Colors.green),
-          const SizedBox(height: 12),
-          Text(
-            '纪要已生成',
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.headlineSmall,
-          ),
-          const SizedBox(height: 20),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(18),
-              child: Text(
-                pipeline.generatedNote!.title,
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          FilledButton(onPressed: onNext, child: const Text('开始下一场会议')),
-        ],
-      );
-    }
-    final failed = forceFailed || stage == ProcessingStage.failed;
-    final errorMessage = errorOverride ?? pipeline.errorMessage;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Icon(failed ? Icons.error_outline : Icons.hourglass_top, size: 64),
-        const SizedBox(height: 16),
-        Text(
-          failed ? '处理失败' : _stageName(stage),
-          textAlign: TextAlign.center,
-          style: Theme.of(context).textTheme.headlineSmall,
-        ),
-        const SizedBox(height: 12),
-        if (stage == ProcessingStage.transcribing)
-          Text(
-            '正在转写第 ${pipeline.currentSlice}/${pipeline.totalSlices} 个片段',
-            textAlign: TextAlign.center,
-          ),
-        if (errorMessage != null)
-          Text(
-            errorMessage,
-            textAlign: TextAlign.center,
-            style: TextStyle(color: Theme.of(context).colorScheme.error),
-          ),
-        const SizedBox(height: 20),
-        if (!failed) const LinearProgressIndicator(),
-        if (!failed) ...[
-          const SizedBox(height: 16),
-          OutlinedButton.icon(
-            onPressed: onBackground,
-            icon: const Icon(Icons.notifications_active_outlined),
-            label: const Text('在后台继续，完成后通知我'),
-          ),
-        ],
-        if (failed && onRetry != null)
-          FilledButton.icon(
-            onPressed: onRetry,
-            icon: const Icon(Icons.refresh),
-            label: const Text('从上次成功阶段重试'),
-          ),
-        if (failed && onNext != null)
-          TextButton(onPressed: onNext, child: const Text('放弃并开始下一场')),
-      ],
-    );
-  }
-
-  static String _stageName(ProcessingStage stage) => switch (stage) {
-    ProcessingStage.saving => '正在保存音频',
-    ProcessingStage.transcribing => '正在语音转写',
-    ProcessingStage.summarizing => '正在生成纪要',
-    ProcessingStage.persisting => '正在保存纪要',
-    ProcessingStage.done => '处理完成',
-    ProcessingStage.failed => '处理失败',
-  };
+  Widget build(BuildContext context) => Chip(
+    avatar: Icon(
+      phase == LiveTranscriptPhase.streaming
+          ? Icons.cloud_done_outlined
+          : Icons.cloud_off_outlined,
+      size: 18,
+    ),
+    label: Text(_liveLabel(phase)),
+  );
 }
 
 class _TransitionPanel extends StatelessWidget {
@@ -452,20 +408,65 @@ class _TransitionPanel extends StatelessWidget {
   final String message;
 
   @override
-  Widget build(BuildContext context) => Column(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      Icon(icon, size: 64),
-      const SizedBox(height: 16),
-      Text(
-        title,
-        textAlign: TextAlign.center,
-        style: Theme.of(context).textTheme.headlineSmall,
-      ),
-      const SizedBox(height: 8),
-      Text(message, textAlign: TextAlign.center),
-      const SizedBox(height: 20),
-      const LinearProgressIndicator(),
-    ],
+  Widget build(BuildContext context) => Center(
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 58),
+        const SizedBox(height: 14),
+        Text(title, style: Theme.of(context).textTheme.headlineSmall),
+        const SizedBox(height: 8),
+        Text(message, textAlign: TextAlign.center),
+        const SizedBox(height: 20),
+        const CircularProgressIndicator(),
+      ],
+    ),
   );
 }
+
+class _FailurePanel extends StatelessWidget {
+  const _FailurePanel({required this.message, required this.onReset});
+  final String message;
+  final VoidCallback onReset;
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 520),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.error_outline,
+            size: 58,
+            color: Theme.of(context).colorScheme.error,
+          ),
+          const SizedBox(height: 12),
+          Text('录音遇到问题', style: Theme.of(context).textTheme.headlineSmall),
+          const SizedBox(height: 8),
+          Text(message, textAlign: TextAlign.center),
+          const SizedBox(height: 18),
+          FilledButton(onPressed: onReset, child: const Text('返回录音准备')),
+        ],
+      ),
+    ),
+  );
+}
+
+String _liveLabel(LiveTranscriptPhase phase) => switch (phase) {
+  LiveTranscriptPhase.disabled => '未开启实时转写',
+  LiveTranscriptPhase.connecting => '正在连接实时转写…',
+  LiveTranscriptPhase.streaming => '实时转写已连接',
+  LiveTranscriptPhase.reconnecting => '正在重新连接实时转写…',
+  LiveTranscriptPhase.degraded => '实时转写已中断',
+  LiveTranscriptPhase.closing => '正在整理实时文字…',
+  LiveTranscriptPhase.completed => '实时转写已完成',
+  LiveTranscriptPhase.failed => '实时转写不可用',
+};
+
+String? _liveDegradedMessage(LiveTranscriptPhase phase) => switch (phase) {
+  LiveTranscriptPhase.reconnecting ||
+  LiveTranscriptPhase.degraded => '实时转写已中断，录音仍在继续',
+  LiveTranscriptPhase.failed => '实时转写不可用，录音仍在继续',
+  _ => null,
+};

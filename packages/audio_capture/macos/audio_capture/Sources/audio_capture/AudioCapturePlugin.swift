@@ -4,20 +4,26 @@ import FlutterMacOS
 
 public final class AudioCapturePlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
   private let capture = MacOSAudioCapture()
+  private let pcmStreamHandler = PCMStreamHandler()
   private var eventSink: FlutterEventSink?
 
   public static func register(with registrar: FlutterPluginRegistrar) {
     let instance = AudioCapturePlugin()
     let methods = FlutterMethodChannel(name: "audio_capture", binaryMessenger: registrar.messenger)
     let events = FlutterEventChannel(name: "audio_capture/events", binaryMessenger: registrar.messenger)
+    let pcmEvents = FlutterEventChannel(name: "audio_capture/pcm", binaryMessenger: registrar.messenger)
     registrar.addMethodCallDelegate(instance, channel: methods)
     events.setStreamHandler(instance)
+    pcmEvents.setStreamHandler(instance.pcmStreamHandler)
   }
 
   public override init() {
     super.init()
     capture.onEvent = { [weak self] type, value in
       DispatchQueue.main.async { self?.eventSink?(["type": type, "value": value]) }
+    }
+    capture.onPCMFrame = { [weak self] frame in
+      self?.pcmStreamHandler.emit(frame)
     }
   }
 
@@ -35,6 +41,7 @@ public final class AudioCapturePlugin: NSObject, FlutterPlugin, FlutterStreamHan
         result([
           "systemAudioAvailable": availability.systemAudio,
           "microphoneAvailable": availability.microphone,
+          "nativeSessionId": availability.sessionId,
           "degradationReason": degradationReason
         ])
       } catch {
@@ -47,7 +54,12 @@ public final class AudioCapturePlugin: NSObject, FlutterPlugin, FlutterStreamHan
       capture.resume()
       result(nil)
     case "stop":
-      do { result(try capture.stop().path) }
+      do {
+        let path = try capture.stop().path
+        // PCM callbacks were queued first; complete the method on the next
+        // main-loop turn so Dart observes the terminal frame before stop().
+        DispatchQueue.main.async { result(path) }
+      }
       catch { result(FlutterError(code: "stop_failed", message: error.localizedDescription, details: nil)) }
     case "permissionStatus":
       let systemAudioGranted: Bool
@@ -116,5 +128,38 @@ public final class AudioCapturePlugin: NSObject, FlutterPlugin, FlutterStreamHan
       string: "x-apple.systempreferences:com.apple.preference.security?\(pane)"
     ) else { return }
     NSWorkspace.shared.open(url)
+  }
+}
+
+private final class PCMStreamHandler: NSObject, FlutterStreamHandler {
+  private var eventSink: FlutterEventSink?
+
+  func onListen(
+    withArguments arguments: Any?,
+    eventSink events: @escaping FlutterEventSink
+  ) -> FlutterError? {
+    eventSink = events
+    return nil
+  }
+
+  func onCancel(withArguments arguments: Any?) -> FlutterError? {
+    eventSink = nil
+    return nil
+  }
+
+  func emit(_ frame: NativePCMFrame) {
+    let payload: [String: Any] = [
+      "sessionId": frame.sessionId,
+      "sequence": frame.sequence,
+      "startSample": frame.startSample,
+      "sampleRate": frame.sampleRate,
+      "channels": frame.channels,
+      "bytes": FlutterStandardTypedData(bytes: frame.bytes)
+    ]
+    if Thread.isMainThread {
+      eventSink?(payload)
+    } else {
+      DispatchQueue.main.async { [weak self] in self?.eventSink?(payload) }
+    }
   }
 }

@@ -152,6 +152,8 @@ class MeetingNote {
     required this.highlights,
     this.visuals,
     this.deletedAt,
+    this.meetingId,
+    this.transcriptId,
   });
 
   final String id;
@@ -166,12 +168,16 @@ class MeetingNote {
   final List<Duration> highlights;
   final NoteVisuals? visuals;
   final DateTime? deletedAt;
+  final String? meetingId;
+  final String? transcriptId;
 
   MeetingNote copyWith({
     String? audioPath,
     String? transcriptPath,
     DateTime? deletedAt,
     bool clearDeletedAt = false,
+    String? meetingId,
+    String? transcriptId,
   }) => MeetingNote(
     id: id,
     title: title,
@@ -185,6 +191,8 @@ class MeetingNote {
     highlights: highlights,
     visuals: visuals,
     deletedAt: clearDeletedAt ? null : deletedAt ?? this.deletedAt,
+    meetingId: meetingId ?? this.meetingId,
+    transcriptId: transcriptId ?? this.transcriptId,
   );
 
   Map<String, Object?> toJson() => {
@@ -202,6 +210,8 @@ class MeetingNote {
         .toList(),
     'visuals': visuals?.toJson(),
     'deletedAt': deletedAt?.toUtc().toIso8601String(),
+    'meetingId': meetingId,
+    'transcriptId': transcriptId,
   };
 
   String encode() => jsonEncode(toJson());
@@ -232,6 +242,8 @@ class MeetingNote {
     deletedAt: json['deletedAt'] == null
         ? null
         : DateTime.parse(json['deletedAt'] as String).toLocal(),
+    meetingId: json['meetingId'] as String?,
+    transcriptId: json['transcriptId'] as String?,
   );
 
   factory MeetingNote.decode(String source) =>

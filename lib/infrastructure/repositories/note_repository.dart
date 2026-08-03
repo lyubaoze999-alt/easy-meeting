@@ -41,48 +41,80 @@ class LocalNoteRepository implements NoteRepository {
     File? audioSource,
     String? transcript,
   }) async {
+    final existingRow = await (database.select(
+      database.notes,
+    )..where((row) => row.id.equals(note.id))).getSingleOrNull();
     final noteDirectory = Directory(p.join(baseDirectory.path, note.id));
     await noteDirectory.create(recursive: true);
     final audioFile = File(p.join(noteDirectory.path, 'audio.wav'));
     final transcriptFile = File(p.join(noteDirectory.path, 'transcript.txt'));
     final bodyFile = File(p.join(noteDirectory.path, 'note.json'));
+    final usesIndependentAssets =
+        note.meetingId != null && note.transcriptId != null;
 
-    if (audioSource != null && audioSource.path != audioFile.path) {
+    if (!usesIndependentAssets &&
+        audioSource != null &&
+        audioSource.path != audioFile.path) {
       await audioSource.copy(audioFile.path);
-    } else if (note.audioPath.isNotEmpty && note.audioPath != audioFile.path) {
+    } else if (!usesIndependentAssets &&
+        note.audioPath.isNotEmpty &&
+        note.audioPath != audioFile.path) {
       await File(note.audioPath).copy(audioFile.path);
     }
-    if (transcript != null) {
+    if (!usesIndependentAssets && transcript != null) {
       await _writeAtomic(transcriptFile, transcript);
-    } else if (note.transcriptPath.isNotEmpty &&
+    } else if (!usesIndependentAssets &&
+        note.transcriptPath.isNotEmpty &&
         note.transcriptPath != transcriptFile.path) {
       await File(note.transcriptPath).copy(transcriptFile.path);
     }
 
-    final archived = note.copyWith(
-      audioPath: audioFile.path,
-      transcriptPath: transcriptFile.path,
-    );
+    final archived = usesIndependentAssets
+        ? note
+        : note.copyWith(
+            audioPath: audioFile.path,
+            transcriptPath: transcriptFile.path,
+          );
     await _writeAtomic(bodyFile, archived.encode());
     final now = DateTime.now();
-    await database
-        .into(database.notes)
-        .insertOnConflictUpdate(
-          NotesCompanion.insert(
-            id: archived.id,
-            title: archived.title,
-            startedAt: archived.startedAt,
-            durationMs: archived.duration.inMilliseconds,
-            templateId: archived.templateId,
-            audioPath: archived.audioPath,
-            transcriptPath: archived.transcriptPath,
-            bodyPath: bodyFile.path,
-            searchText: _searchText(archived),
-            deletedAt: Value(archived.deletedAt),
-            createdAt: now,
-            updatedAt: now,
-          ),
-        );
+    try {
+      await database.transaction(() async {
+        final meetingId = archived.meetingId;
+        if (meetingId != null) {
+          final meeting = await (database.select(
+            database.meetings,
+          )..where((row) => row.id.equals(meetingId))).getSingleOrNull();
+          if (meeting == null || meeting.deletedAt != null) {
+            throw StateError('Meeting does not exist or is trashed.');
+          }
+        }
+        await database
+            .into(database.notes)
+            .insertOnConflictUpdate(
+              NotesCompanion.insert(
+                id: archived.id,
+                title: archived.title,
+                startedAt: archived.startedAt,
+                durationMs: archived.duration.inMilliseconds,
+                templateId: archived.templateId,
+                audioPath: archived.audioPath,
+                transcriptPath: archived.transcriptPath,
+                bodyPath: bodyFile.path,
+                searchText: _searchText(archived),
+                deletedAt: Value(archived.deletedAt),
+                createdAt: now,
+                updatedAt: now,
+                meetingId: Value(archived.meetingId),
+                transcriptId: Value(archived.transcriptId),
+              ),
+            );
+      });
+    } on Object {
+      if (existingRow == null && await noteDirectory.exists()) {
+        await noteDirectory.delete(recursive: true);
+      }
+      rethrow;
+    }
     return archived;
   }
 

@@ -66,8 +66,8 @@ class DesktopTrayController with TrayListener, WindowListener {
           MenuItem.separator(),
           MenuItem(
             key: 'exit',
-            label: session.blocksExit ? '当前任务进行中，不可退出' : '退出',
-            disabled: session.blocksExit,
+            label: services.blocksExit ? '当前任务进行中，不可退出' : '退出',
+            disabled: services.blocksExit,
           ),
         ],
       ),
@@ -115,7 +115,7 @@ class DesktopTrayController with TrayListener, WindowListener {
   }
 
   Future<void> _exit() async {
-    if (_exiting || services.session.blocksExit) {
+    if (_exiting || services.blocksExit) {
       return;
     }
     _exiting = true;

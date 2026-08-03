@@ -37,6 +37,9 @@ class LocalProcessingJobRepository implements ProcessingJobRepository {
             failureMessage: Value(job.failureMessage),
             retryCount: Value(job.retryCount),
             updatedAt: job.updatedAt,
+            meetingId: Value(job.meetingId),
+            jobType: Value(job.jobType?.name),
+            checkpointJson: Value(job.checkpointJson),
           ),
         );
   }
@@ -59,7 +62,7 @@ class LocalProcessingJobRepository implements ProcessingJobRepository {
               )
               ..orderBy([(table) => OrderingTerm.desc(table.updatedAt)]))
             .get();
-    return rows.map(_fromRow).toList();
+    return rows.map(_fromRow).where((job) => job.isRecoverable).toList();
   }
 
   @override
@@ -94,6 +97,13 @@ class LocalProcessingJobRepository implements ProcessingJobRepository {
       failureCode: row.failureCode,
       failureMessage: row.failureMessage,
       retryCount: row.retryCount,
+      meetingId: row.meetingId,
+      jobType: row.jobType == null
+          ? null
+          : model.JobType.values.byName(row.jobType!),
+      checkpoint: row.checkpointJson == null
+          ? const {}
+          : jsonDecode(row.checkpointJson!) as Map<String, Object?>,
     );
   }
 }

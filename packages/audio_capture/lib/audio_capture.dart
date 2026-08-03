@@ -1,20 +1,26 @@
+export 'audio_frame.dart';
+
+import 'audio_frame.dart';
 import 'audio_capture_platform_interface.dart';
 
 class AudioCaptureStartResult {
   const AudioCaptureStartResult({
     required this.systemAudioAvailable,
     required this.microphoneAvailable,
+    required this.nativeSessionId,
     this.degradationReason,
   });
 
   final bool systemAudioAvailable;
   final bool microphoneAvailable;
+  final String nativeSessionId;
   final String? degradationReason;
 
   factory AudioCaptureStartResult.fromMap(Map<String, Object?> map) =>
       AudioCaptureStartResult(
         systemAudioAvailable: map['systemAudioAvailable'] as bool? ?? false,
         microphoneAvailable: map['microphoneAvailable'] as bool? ?? false,
+        nativeSessionId: map['nativeSessionId'] as String? ?? '',
         degradationReason: map['degradationReason'] as String?,
       );
 }
@@ -45,6 +51,7 @@ class AudioCapture {
   Stream<double> get microphoneLevel => _doubleEvents('microphoneLevel');
   Stream<bool> get systemSilent => _boolEvents('systemSilent');
   Stream<bool> get microphoneSilent => _boolEvents('microphoneSilent');
+  Stream<AudioFrame> get pcmFrames => _platform.pcmFrames;
 
   Future<AudioCaptureStartResult> start() async =>
       AudioCaptureStartResult.fromMap(await _platform.start());
