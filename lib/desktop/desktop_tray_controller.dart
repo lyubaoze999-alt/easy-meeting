@@ -6,7 +6,7 @@ import 'package:window_manager/window_manager.dart';
 
 import '../app_services/app_services.dart';
 import '../app_services/meeting_session_controller.dart';
-import '../domain/models/processing_job.dart';
+import 'desktop_tray_presentation.dart';
 
 class DesktopTrayController with TrayListener, WindowListener {
   DesktopTrayController(this.services);
@@ -59,7 +59,11 @@ class DesktopTrayController with TrayListener, WindowListener {
                   ? '继续录音'
                   : '暂停录音',
             ),
-          if (isRecording) MenuItem(key: 'stop', label: '结束并生成纪要'),
+          if (isRecording)
+            MenuItem(
+              key: 'stop',
+              label: DesktopTrayPresentation.stopRecordingLabel,
+            ),
           if (session.phase == MeetingSessionPhase.failed &&
               session.processing.currentJob != null)
             MenuItem(key: 'retry', label: '从上次成功阶段重试'),
@@ -130,35 +134,13 @@ class DesktopTrayController with TrayListener, WindowListener {
     if (!_exiting) windowManager.hide();
   }
 
-  static String _duration(Duration value) {
-    final minutes = value.inMinutes.toString().padLeft(2, '0');
-    final seconds = value.inSeconds.remainder(60).toString().padLeft(2, '0');
-    return '$minutes:$seconds';
-  }
+  static String _duration(Duration value) =>
+      DesktopTrayPresentation.duration(value);
 
   static String _sessionState(MeetingSessionController session) =>
-      switch (session.phase) {
-        MeetingSessionPhase.initializing => '正在恢复未完成任务',
-        MeetingSessionPhase.ready => '准备记录',
-        MeetingSessionPhase.starting => '正在启动录音',
-        MeetingSessionPhase.recording =>
-          '正在录音 ${_duration(session.recording.elapsed)}',
-        MeetingSessionPhase.pausing => '正在暂停录音',
-        MeetingSessionPhase.paused =>
-          '录音已暂停 ${_duration(session.recording.elapsed)}',
-        MeetingSessionPhase.resuming => '正在继续录音',
-        MeetingSessionPhase.stopping => '正在结束录音',
-        MeetingSessionPhase.processing => _stageName(session.processingStage),
-        MeetingSessionPhase.completed => '纪要已生成',
-        MeetingSessionPhase.failed => '处理失败，可重试',
-      };
-
-  static String _stageName(ProcessingStage stage) => switch (stage) {
-    ProcessingStage.saving => '正在保存音频',
-    ProcessingStage.transcribing => '正在语音转写',
-    ProcessingStage.summarizing => '正在生成纪要',
-    ProcessingStage.persisting => '正在保存纪要',
-    ProcessingStage.done => '处理完成',
-    ProcessingStage.failed => '处理失败',
-  };
+      DesktopTrayPresentation.sessionState(
+        session.phase,
+        elapsed: session.recording.elapsed,
+        processingStage: session.processingStage,
+      );
 }

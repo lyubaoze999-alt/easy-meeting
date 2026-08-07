@@ -64,6 +64,7 @@ void main() {
     );
 
     expect(find.text('录音已安全保存'), findsOneWidget);
+    expect(find.text('纪要已生成'), findsNothing);
     expect(find.text('生成正式转写'), findsOneWidget);
     final noteButton = tester.widget<OutlinedButton>(
       find.widgetWithText(OutlinedButton, '生成会议纪要'),
