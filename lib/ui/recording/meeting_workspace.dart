@@ -14,6 +14,7 @@ class MeetingWorkspace extends StatelessWidget {
     required this.highlightCount,
     required this.connectionLabel,
     required this.transcriptLines,
+    required this.realtimeSupported,
     required this.onPauseResume,
     required this.onStop,
     required this.onHighlight,
@@ -32,6 +33,11 @@ class MeetingWorkspace extends StatelessWidget {
   final int highlightCount;
   final String connectionLabel;
   final List<LiveTranscriptLine> transcriptLines;
+
+  /// Whether the current platform can stream realtime PCM for live
+  /// transcription. When false (e.g. Windows), the workspace renders a
+  /// capability notice instead of a misleading empty "实时文字" panel (R-09).
+  final bool realtimeSupported;
   final VoidCallback onPauseResume;
   final VoidCallback onStop;
   final VoidCallback onHighlight;
@@ -54,11 +60,15 @@ class MeetingWorkspace extends StatelessWidget {
       onStop: onStop,
       onHighlight: onHighlight,
     );
-    final transcript = LiveTranscriptPanel(
-      lines: transcriptLines,
-      connectionLabel: connectionLabel,
-      degradedMessage: liveDegradedMessage,
-    );
+    // R-09: on platforms without realtime PCM (Windows), do not show a
+    // misleading empty live-text panel; render a capability notice instead.
+    final transcript = realtimeSupported
+        ? LiveTranscriptPanel(
+            lines: transcriptLines,
+            connectionLabel: connectionLabel,
+            degradedMessage: liveDegradedMessage,
+          )
+        : const _LocalOnlyPanel();
     if (MediaQuery.sizeOf(context).width < 760) {
       return Column(
         children: [
@@ -76,6 +86,49 @@ class MeetingWorkspace extends StatelessWidget {
       ],
     );
   }
+}
+
+/// Shown in place of the live-transcript panel when the platform cannot stream
+/// realtime PCM. Tells the user clearly that realtime text is unavailable but
+/// the local recording is unaffected and can be transcribed afterwards.
+class _LocalOnlyPanel extends StatelessWidget {
+  const _LocalOnlyPanel();
+
+  @override
+  Widget build(BuildContext context) => Card(
+    child: Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 360),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.subtitles_off_outlined,
+                size: 44,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+              const SizedBox(height: 14),
+              Text(
+                '当前平台无法实时转写',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '录音仍会正常保存到本地，可在录音结束后生成转写与纪要。',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 class _RecordingControls extends StatelessWidget {
@@ -111,63 +164,68 @@ class _RecordingControls extends StatelessWidget {
   Widget build(BuildContext context) => Card(
     child: Padding(
       padding: const EdgeInsets.all(20),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Icon(
-            isPaused ? Icons.pause_circle : Icons.graphic_eq,
-            size: 52,
-            color: Theme.of(context).colorScheme.error,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            isPaused ? '录音已暂停' : '正在录音',
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.titleLarge,
-          ),
-          Text(
-            _duration(elapsed),
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.headlineMedium,
-          ),
-          const SizedBox(height: 20),
-          _Level(
-            label: '系统声音',
-            value: systemLevel,
-            available: systemAudioAvailable,
-          ),
-          _Level(
-            label: '麦克风',
-            value: microphoneLevel,
-            available: microphoneAvailable,
-          ),
-          if (degradationReason != null) ...[
+      // Center the content; mainAxisSize.min (no Spacer) so the control
+      // column also lays out correctly when the parent gives it an unbounded
+      // height (the compact <760px workspace Column).
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Icon(
+              isPaused ? Icons.pause_circle : Icons.graphic_eq,
+              size: 52,
+              color: Theme.of(context).colorScheme.error,
+            ),
             const SizedBox(height: 8),
             Text(
-              degradationReason!,
-              style: TextStyle(color: Theme.of(context).colorScheme.error),
+              isPaused ? '录音已暂停' : '正在录音',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            Text(
+              _duration(elapsed),
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.headlineMedium,
+            ),
+            const SizedBox(height: 20),
+            _Level(
+              label: '系统声音',
+              value: systemLevel,
+              available: systemAudioAvailable,
+            ),
+            _Level(
+              label: '麦克风',
+              value: microphoneLevel,
+              available: microphoneAvailable,
+            ),
+            if (degradationReason != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                degradationReason!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ],
+            const SizedBox(height: 20),
+            OutlinedButton.icon(
+              onPressed: transitioning ? null : onHighlight,
+              icon: const Icon(Icons.bookmark_add_outlined),
+              label: Text('标记重点（$highlightCount）'),
+            ),
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: transitioning ? null : onPauseResume,
+              icon: Icon(isPaused ? Icons.play_arrow : Icons.pause),
+              label: Text(isPaused ? '继续录音' : '暂停录音'),
+            ),
+            const SizedBox(height: 10),
+            FilledButton.icon(
+              onPressed: transitioning ? null : onStop,
+              icon: const Icon(Icons.stop),
+              label: const Text('结束录音'),
             ),
           ],
-          const Spacer(),
-          OutlinedButton.icon(
-            onPressed: transitioning ? null : onHighlight,
-            icon: const Icon(Icons.bookmark_add_outlined),
-            label: Text('标记重点（$highlightCount）'),
-          ),
-          const SizedBox(height: 10),
-          OutlinedButton.icon(
-            onPressed: transitioning ? null : onPauseResume,
-            icon: Icon(isPaused ? Icons.play_arrow : Icons.pause),
-            label: Text(isPaused ? '继续录音' : '暂停录音'),
-          ),
-          const SizedBox(height: 10),
-          FilledButton.icon(
-            onPressed: transitioning ? null : onStop,
-            icon: const Icon(Icons.stop),
-            label: const Text('结束录音'),
-          ),
-        ],
+        ),
       ),
     ),
   );

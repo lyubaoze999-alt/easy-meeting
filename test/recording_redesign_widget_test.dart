@@ -29,6 +29,7 @@ void main() {
                 itemId: 'item-1',
               ),
             ],
+            realtimeSupported: true,
             onPauseResume: () {},
             onStop: () {},
             onHighlight: () {},
@@ -40,6 +41,42 @@ void main() {
     expect(find.text('结束录音'), findsOneWidget);
     expect(find.text('结束并生成纪要'), findsNothing);
     expect(find.text('确认本周交付范围'), findsOneWidget);
+  });
+
+  // R-09: on a platform without realtime PCM (Windows), the workspace must not
+  // render a misleading empty "实时文字" panel; it shows a capability notice.
+  testWidgets('R-09 workspace without realtime shows local-only notice, not '
+      'live-text panel', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: MeetingWorkspace(
+            elapsed: const Duration(minutes: 1),
+            systemLevel: .4,
+            microphoneLevel: .6,
+            systemAudioAvailable: true,
+            microphoneAvailable: true,
+            isPaused: false,
+            transitioning: false,
+            highlightCount: 0,
+            connectionLabel: '未开启实时转写',
+            transcriptLines: const [],
+            realtimeSupported: false,
+            onPauseResume: () {},
+            onStop: () {},
+            onHighlight: () {},
+          ),
+        ),
+      ),
+    );
+
+    // No misleading live-text panel.
+    expect(find.text('实时文字'), findsNothing);
+    expect(find.text('等待声音…\n本地录音会独立保存，不受实时服务影响。'), findsNothing);
+    // Capability notice is shown and recording controls remain.
+    expect(find.text('当前平台无法实时转写'), findsOneWidget);
+    expect(find.text('结束录音'), findsOneWidget);
+    expect(find.text('暂停录音'), findsOneWidget);
   });
 
   testWidgets('saved recording blocks summary until final transcript exists', (

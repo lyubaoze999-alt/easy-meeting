@@ -115,6 +115,7 @@ class _RecordingScreenState extends ConsumerState<RecordingScreen> {
                 .where((item) => item.text.trim().isNotEmpty)
                 .map(_lineFromItem)
                 .toList(growable: false),
+            realtimeSupported: supportsRealtimePcm,
             degradationReason: recording.degradationReason,
             onPauseResume: () => _run(
               phase == CapturePhase.paused
@@ -207,10 +208,33 @@ class _RecordingScreenState extends ConsumerState<RecordingScreen> {
     );
   }
 
-  Future<void> _stopMeeting(MeetingSessionController session) => _run(() async {
-    await session.stopRecording();
-    ref.invalidate(meetingLibraryProvider);
-  });
+  Future<void> _stopMeeting(MeetingSessionController session) async {
+    // Safe-end: require explicit confirmation before stopping (design spec:
+    // double-confirm or long-press). The recording is saved safely and no AI
+    // work is promised on this screen.
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('结束录音？'),
+        content: const Text('录音会安全保存到本地。本页不会自动生成纪要，可在会议库中继续。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('继续录音'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('结束录音'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await _run(() async {
+      await session.stopRecording();
+      ref.invalidate(meetingLibraryProvider);
+    });
+  }
 
   Future<void> _enqueueTranscript(String meetingId) => _run(() async {
     setState(() => _postProcessingMeetings.add(meetingId));
