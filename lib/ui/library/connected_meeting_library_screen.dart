@@ -34,6 +34,7 @@ class ConnectedMeetingLibraryScreen extends ConsumerWidget {
         ),
       ),
       data: (bundles) => MeetingLibraryScreen(
+        initialMeetingId: ref.watch(selectedMeetingIdProvider),
         items: bundles
             .map(
               (bundle) => MeetingLibraryItem(

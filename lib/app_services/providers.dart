@@ -20,6 +20,12 @@ final platformProfileProvider = Provider<PlatformProfile>(
   (ref) => PlatformProfile.current(),
 );
 
+/// A one-shot deep-link request to open the library and preselect a specific
+/// meeting. Written by the recording-prep "recent meetings" section; the shell
+/// listens, switches to the library tab, and clears it after the frame so the
+/// same meeting can be re-navigated to later. `null` means no pending request.
+final selectedMeetingIdProvider = StateProvider<String?>((ref) => null);
+
 final meetingSessionProvider = ChangeNotifierProvider(
   (ref) => ref.watch(appServicesProvider).session,
 );

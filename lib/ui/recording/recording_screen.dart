@@ -14,6 +14,7 @@ import '../../domain/models/note_template.dart';
 import '../../domain/models/processing_job.dart';
 import '../../domain/models/recording_asset.dart';
 import '../../domain/models/transcript_document.dart';
+import '../library/meeting_detail_screen.dart' show meetingDisplayTitle;
 import 'live_transcript_panel.dart';
 import 'meeting_workspace.dart';
 import 'recording_saved_panel.dart';
@@ -46,6 +47,10 @@ class _RecordingScreenState extends ConsumerState<RecordingScreen> {
         .watch(platformProfileProvider)
         .supportsRealtimePcm;
     _liveRequested ??= supportsRealtimePcm && (realtime?.enabled ?? false);
+    final library = ref.watch(meetingLibraryProvider);
+    final recentMeetings = (library.valueOrNull ?? const <MeetingAssetBundle>[])
+        .take(kRecentMeetingsLimit)
+        .toList(growable: false);
 
     return Scaffold(
       appBar: AppBar(
@@ -76,6 +81,9 @@ class _RecordingScreenState extends ConsumerState<RecordingScreen> {
             onDeleteRecording: _confirmDeleteRecording,
             onDeferRecovery: () => setState(() => _recoveryDeferred = true),
             onStart: () => _startMeeting(session, realtime),
+            recentMeetings: recentMeetings,
+            onRecentMeetingTap: (id) =>
+                ref.read(selectedMeetingIdProvider.notifier).state = id,
           ),
           CapturePhase.starting => const _TransitionPanel(
             icon: Icons.mic_none,
@@ -334,6 +342,8 @@ class _PreparationPanel extends StatelessWidget {
     required this.onDeleteRecording,
     required this.onDeferRecovery,
     required this.onStart,
+    required this.recentMeetings,
+    required this.onRecentMeetingTap,
   });
 
   final NoteTemplate template;
@@ -348,6 +358,8 @@ class _PreparationPanel extends StatelessWidget {
   final ValueChanged<OrphanRecording> onDeleteRecording;
   final VoidCallback onDeferRecovery;
   final VoidCallback onStart;
+  final List<MeetingAssetBundle> recentMeetings;
+  final ValueChanged<String> onRecentMeetingTap;
 
   @override
   Widget build(BuildContext context) => Center(
@@ -493,12 +505,92 @@ class _PreparationPanel extends StatelessWidget {
                 child: Text('开始录音'),
               ),
             ),
+            if (recentMeetings.isNotEmpty) ...[
+              const SizedBox(height: 28),
+              Text('最近会议', style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 8),
+              for (final bundle in recentMeetings)
+                _RecentMeetingTile(
+                  bundle: bundle,
+                  onTap: () => onRecentMeetingTap(bundle.meeting.id),
+                ),
+            ],
           ],
         ),
       ),
     ),
   );
 }
+
+/// How many of the most recent meetings the recording-prep "recent meetings"
+/// section shows. The library provider is already ordered by `startedAt`
+/// descending, so the first N entries are the most recent.
+const int kRecentMeetingsLimit = 5;
+
+class _RecentMeetingTile extends StatelessWidget {
+  const _RecentMeetingTile({required this.bundle, required this.onTap});
+
+  final MeetingAssetBundle bundle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final meeting = bundle.meeting;
+    final note = bundle.note;
+    final (label, success) = recentMeetingAssetStatus(bundle);
+    final scheme = Theme.of(context).colorScheme;
+    final chipColors = success
+        ? (scheme.primaryContainer, scheme.onPrimaryContainer)
+        : (scheme.surfaceContainerHighest, scheme.onSurface);
+    final started = meeting.startedAt.toLocal();
+    final date =
+        '${started.month}月${started.day}日 '
+        '${_twoDigits(started.hour)}:${_twoDigits(started.minute)}';
+    return Card.outlined(
+      child: ListTile(
+        dense: true,
+        leading: const Icon(Icons.meeting_room_outlined),
+        title: Text(
+          meetingDisplayTitle(meeting, note),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        subtitle: Text(date),
+        trailing: Semantics(
+          label: '状态：$label',
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: chipColors.$1,
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Text(
+              label,
+              style: Theme.of(
+                context,
+              ).textTheme.labelSmall?.copyWith(color: chipColors.$2),
+            ),
+          ),
+        ),
+        onTap: onTap,
+      ),
+    );
+  }
+}
+
+/// Classifies a meeting's most advanced asset for the "recent meetings" list.
+/// Doc-level truth: a saved recording is not a generated transcript or note, so
+/// the status reflects whatever real asset actually exists (note > transcript >
+/// recording > none). Returns `(label, isReady)` where `isReady` selects the
+/// success chip tone.
+(String, bool) recentMeetingAssetStatus(MeetingAssetBundle bundle) {
+  if (bundle.note != null) return ('纪要就绪', true);
+  if (bundle.transcript != null) return ('转写就绪', true);
+  if (bundle.recording != null) return ('录音已保存', false);
+  return ('新会议', false);
+}
+
+String _twoDigits(int value) => value.toString().padLeft(2, '0');
 
 class _LiveStatusChip extends StatelessWidget {
   const _LiveStatusChip({required this.phase});

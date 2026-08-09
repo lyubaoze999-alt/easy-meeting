@@ -62,6 +62,17 @@ class _HomeShellState extends ConsumerState<HomeShell> {
   Widget build(BuildContext context) {
     final profile = ref.watch(platformProfileProvider);
     final screens = widget.screens;
+    // A "recent meetings" deep-link on the recording-prep page requests the
+    // library tab. Switch to it, then clear the one-shot request after the frame
+    // so the library's didUpdateWidget sees the target id before it is reset.
+    ref.listen<String?>(selectedMeetingIdProvider, (previous, next) {
+      if (next == null) return;
+      if (index != 1) _selectDestination(1);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ref.read(selectedMeetingIdProvider.notifier).state = null;
+      });
+    });
     if (profile.form == DeviceForm.mobile) {
       return Scaffold(
         body: SafeArea(

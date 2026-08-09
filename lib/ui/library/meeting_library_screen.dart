@@ -64,6 +64,7 @@ class MeetingLibraryItem {
 class MeetingLibraryScreen extends StatefulWidget {
   const MeetingLibraryScreen({
     required this.items,
+    this.initialMeetingId,
     this.onMeetingSelected,
     this.onSearchChanged,
     this.onPlayRecording,
@@ -84,6 +85,11 @@ class MeetingLibraryScreen extends StatefulWidget {
   });
 
   final List<MeetingLibraryItem> items;
+
+  /// A deep-link request to select this meeting on next build (set by the
+  /// recording-prep "recent meetings" section). A `null` value leaves the
+  /// current selection unchanged.
+  final String? initialMeetingId;
   final MeetingCallback? onMeetingSelected;
   final ValueChanged<String>? onSearchChanged;
   final RecordingCallback? onPlayRecording;
@@ -111,20 +117,34 @@ class _MeetingLibraryScreenState extends State<MeetingLibraryScreen> {
   @override
   void initState() {
     super.initState();
-    _selectedMeetingId = widget.items.isEmpty
-        ? null
-        : widget.items.first.meeting.id;
+    _selectedMeetingId = _resolveInitialId() ?? _firstMeetingId();
   }
 
   @override
   void didUpdateWidget(covariant MeetingLibraryScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
+    // Honor a deep-link request (a newly non-null initialMeetingId) so the
+    // recording-prep "recent meetings" section can preselect a specific meeting.
+    final requested = widget.initialMeetingId;
+    if (requested != null &&
+        requested != oldWidget.initialMeetingId &&
+        _itemById(requested) != null) {
+      _selectedMeetingId = requested;
+      return;
+    }
     if (_itemById(_selectedMeetingId) == null) {
-      _selectedMeetingId = widget.items.isEmpty
-          ? null
-          : widget.items.first.meeting.id;
+      _selectedMeetingId = _firstMeetingId();
     }
   }
+
+  String? _resolveInitialId() {
+    final requested = widget.initialMeetingId;
+    if (requested != null && _itemById(requested) != null) return requested;
+    return null;
+  }
+
+  String? _firstMeetingId() =>
+      widget.items.isEmpty ? null : widget.items.first.meeting.id;
 
   @override
   Widget build(BuildContext context) {
