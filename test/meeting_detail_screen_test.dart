@@ -31,10 +31,15 @@ void main() {
         ),
       );
 
+      // A ready note defaults the detail open to the 纪要 tab, so switch to
+      // the 录音 tab to exercise the recording actions.
+      await tester.tap(find.text('录音'));
+      await tester.pumpAndSettle();
+
       expect(find.text('系统声音 + 麦克风'), findsOneWidget);
       expect(find.text('52.0 MB'), findsOneWidget);
 
-      await tester.tap(find.byTooltip('播放'));
+      await tester.tap(find.text('使用系统播放器播放'));
       expect(plays, 1);
 
       await tester.tap(find.text('删除录音'));
@@ -158,7 +163,35 @@ void main() {
     );
     expect(reveal.onPressed, isNull);
     expect(export.onPressed, isNull);
-    expect(find.byTooltip('播放'), findsOneWidget);
+    expect(find.text('使用系统播放器播放'), findsOneWidget);
+  });
+
+  testWidgets('detail defaults to the 纪要 tab when a ready note exists', (
+    tester,
+  ) async {
+    await _pumpDetail(
+      tester,
+      MeetingDetailScreen(
+        meeting: _meeting(),
+        recording: _recording(),
+        transcript: _transcript(status: TranscriptStatus.ready),
+        note: _note(),
+      ),
+    );
+    // Note readiness routes the initial tab to 纪要.
+    expect(find.text('关键结论'), findsOneWidget);
+    expect(find.text('使用系统播放器播放'), findsNothing);
+  });
+
+  testWidgets('detail falls back to the 录音 tab when there is no note', (
+    tester,
+  ) async {
+    await _pumpDetail(
+      tester,
+      MeetingDetailScreen(meeting: _meeting(), recording: _recording()),
+    );
+    expect(find.text('使用系统播放器播放'), findsOneWidget);
+    expect(find.text('关键结论'), findsNothing);
   });
 }
 

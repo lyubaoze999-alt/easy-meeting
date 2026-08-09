@@ -209,7 +209,11 @@ class _MeetingLibraryScreenState extends State<MeetingLibraryScreen> {
     final recording = item.recording;
     final transcript = item.transcript;
     final note = item.note;
+    // Key the detail per meeting so DefaultTabController re-initializes its
+    // tab when switching selection: a note-ready meeting opens on 纪要, one
+    // without falls back to 录音 (R-03 "default 纪要").
     return MeetingDetailScreen(
+      key: ValueKey(item.meeting.id),
       meeting: item.meeting,
       recording: recording,
       transcript: transcript,

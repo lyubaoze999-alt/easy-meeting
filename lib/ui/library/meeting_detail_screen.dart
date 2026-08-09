@@ -84,8 +84,15 @@ class MeetingDetailScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Design spec: the detail screen defaults to the 纪要 tab when a ready
+    // note exists; otherwise it falls back to 录音. R-03 companion.
+    final initialTab =
+        effectiveNoteStatus == MeetingNoteDisplayStatus.ready && note != null
+        ? 2
+        : 0;
     return DefaultTabController(
       length: 3,
+      initialIndex: initialTab,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -110,10 +117,7 @@ class MeetingDetailScreen extends StatelessWidget {
                   meeting: meeting,
                   recording: recording,
                   status: effectiveRecordingStatus,
-                  playbackPosition: playbackPosition,
-                  isPlaying: isPlaying,
                   onPlay: onPlayRecording,
-                  onSeek: onSeekRecording,
                   onReveal: onRevealRecording,
                   onExport: onExportRecording,
                   onDelete: onDeleteRecording == null
@@ -316,10 +320,7 @@ class _RecordingTab extends StatelessWidget {
     required this.meeting,
     required this.recording,
     required this.status,
-    required this.playbackPosition,
-    required this.isPlaying,
     required this.onPlay,
-    required this.onSeek,
     required this.onReveal,
     required this.onExport,
     required this.onDelete,
@@ -328,10 +329,7 @@ class _RecordingTab extends StatelessWidget {
   final MeetingRecord meeting;
   final RecordingAsset? recording;
   final RecordingDisplayStatus status;
-  final Duration playbackPosition;
-  final bool isPlaying;
   final VoidCallback? onPlay;
-  final ValueChanged<Duration>? onSeek;
   final VoidCallback? onReveal;
   final VoidCallback? onExport;
   final VoidCallback? onDelete;
@@ -369,12 +367,6 @@ class _RecordingTab extends StatelessWidget {
     final duration = recording!.duration > Duration.zero
         ? recording!.duration
         : meeting.duration;
-    final maxMilliseconds = duration.inMilliseconds > 0
-        ? duration.inMilliseconds.toDouble()
-        : 1.0;
-    final position = playbackPosition.inMilliseconds
-        .clamp(0, maxMilliseconds.toInt())
-        .toDouble();
     return ListView(
       padding: const EdgeInsets.all(24),
       children: [
@@ -384,31 +376,13 @@ class _RecordingTab extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Row(
-                  children: [
-                    IconButton.filled(
-                      tooltip: isPlaying ? '暂停' : '播放',
-                      onPressed: onPlay,
-                      icon: Icon(isPlaying ? Icons.pause : Icons.play_arrow),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Slider(
-                        value: position,
-                        max: maxMilliseconds,
-                        onChanged: onSeek == null
-                            ? null
-                            : (value) => onSeek!(
-                                Duration(milliseconds: value.round()),
-                              ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      '${formatClock(playbackPosition)} / '
-                      '${formatClock(duration)}',
-                    ),
-                  ],
+                // R-03: instead of a non-functional embedded progress bar, we
+                // open the file in the system default player. This is a real,
+                // working playback path without an in-app audio dependency.
+                FilledButton.icon(
+                  onPressed: onPlay,
+                  icon: const Icon(Icons.play_arrow),
+                  label: const Text('使用系统播放器播放'),
                 ),
                 const SizedBox(height: 12),
                 Wrap(
