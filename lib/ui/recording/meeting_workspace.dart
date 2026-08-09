@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../theme/theme_tokens.dart';
 import 'live_transcript_panel.dart';
 
 class MeetingWorkspace extends StatelessWidget {
@@ -19,6 +20,7 @@ class MeetingWorkspace extends StatelessWidget {
     required this.onStop,
     required this.onHighlight,
     this.degradationReason,
+    this.writeErrorMessage,
     this.liveDegradedMessage,
     super.key,
   });
@@ -42,6 +44,10 @@ class MeetingWorkspace extends StatelessWidget {
   final VoidCallback onStop;
   final VoidCallback onHighlight;
   final String? degradationReason;
+
+  /// Native write-failure message (R-05). When set, the local capture stopped
+  /// being written to disk; the user must see a persistent, obvious warning.
+  final String? writeErrorMessage;
   final String? liveDegradedMessage;
 
   @override
@@ -69,20 +75,60 @@ class MeetingWorkspace extends StatelessWidget {
             degradedMessage: liveDegradedMessage,
           )
         : const _LocalOnlyPanel();
+    final Widget content;
     if (MediaQuery.sizeOf(context).width < 760) {
-      return Column(
+      content = Column(
         children: [
           Expanded(child: transcript),
           controls,
         ],
       );
+    } else {
+      content = Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(width: 310, child: controls),
+          const SizedBox(width: 16),
+          Expanded(child: transcript),
+        ],
+      );
     }
-    return Row(
+    // R-05: a native write failure must be impossible to miss. Render a
+    // persistent error banner above the workspace so the user knows the
+    // on-disk capture is no longer being written.
+    if (writeErrorMessage == null) return content;
+    return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SizedBox(width: 310, child: controls),
-        const SizedBox(width: 16),
-        Expanded(child: transcript),
+        const SizedBox(height: 12),
+        Material(
+          color: Theme.of(context).colorScheme.errorContainer,
+          borderRadius: BorderRadius.circular(
+            Theme.of(context).extension<ThemeTokens>()!.radiusControl,
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.error_outline,
+                  color: Theme.of(context).colorScheme.onErrorContainer,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    '录音写入失败，已停止保存：${writeErrorMessage!}',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onErrorContainer,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        Expanded(child: content),
       ],
     );
   }

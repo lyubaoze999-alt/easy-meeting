@@ -117,6 +117,7 @@ class _RecordingScreenState extends ConsumerState<RecordingScreen> {
                 .toList(growable: false),
             realtimeSupported: supportsRealtimePcm,
             degradationReason: recording.degradationReason,
+            writeErrorMessage: recording.writeErrorMessage,
             onPauseResume: () => _run(
               phase == CapturePhase.paused
                   ? session.resumeRecording

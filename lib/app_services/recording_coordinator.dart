@@ -55,6 +55,13 @@ class RecordingCoordinator extends ChangeNotifier {
         microphoneSilent = value;
         notifyListeners();
       }),
+      // R-05: a native write failure must reach the UI so the user knows the
+      // on-disk capture stopped being written. Sticky — once set it stays set
+      // until the coordinator is reset.
+      _capture.writeError.listen((message) {
+        writeErrorMessage = message;
+        notifyListeners();
+      }),
     ]);
   }
 
@@ -72,6 +79,7 @@ class RecordingCoordinator extends ChangeNotifier {
   String? degradationReason;
   String? errorMessage;
   String? nativeSessionId;
+  String? writeErrorMessage;
   DateTime? _startedAt;
   DateTime? _segmentStartedAt;
   Duration _accumulated = Duration.zero;
@@ -200,6 +208,7 @@ class RecordingCoordinator extends ChangeNotifier {
     systemLevel = 0;
     microphoneLevel = 0;
     errorMessage = null;
+    writeErrorMessage = null;
     nativeSessionId = null;
     notifyListeners();
   }

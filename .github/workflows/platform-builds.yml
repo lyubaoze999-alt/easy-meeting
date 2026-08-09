@@ -46,6 +46,13 @@ jobs:
             packages/audio_capture/macos/audio_capture/Tests/PCMFramePumpTests/main.swift \
             -o /tmp/pcm_frame_pump_tests
           /tmp/pcm_frame_pump_tests
+      - name: Verify mac audio logic (silence, ring, meter, errors)
+        run: |
+          swiftc \
+            packages/audio_capture/macos/audio_capture/Sources/audio_capture/MacAudioLogic.swift \
+            packages/audio_capture/macos/audio_capture/Tests/MacAudioLogicTests/main.swift \
+            -o /tmp/mac_audio_logic_tests
+          /tmp/mac_audio_logic_tests
       - run: flutter build macos --release
       - run: bash packaging/macos/create_dmg.sh
       - uses: actions/upload-artifact@v4

@@ -14,8 +14,15 @@
 - [x] Android release APK：CI artifact 26.7 MB（压缩包大小），本地 APK 58.4 MB
 - [x] iOS no-codesign archive：`macos-15` 已验证，unsigned xcarchive artifact 49.9 MB；签名后才可导出 IPA
 - [x] 共享质量门禁：[GitHub Actions run 30809195094](https://github.com/lyubaoze999-alt/easy-meeting/actions/runs/30809195094) 通过
+- [x] Loop 9 原生逻辑（`MacAudioLogic`）swiftc 测试接入 macOS CI：静音迟滞、环形缓冲
+  溢出去旧、RMS 电平、错误分类与降级文案、`writeError` 上报链（原生 → Dart →
+  协调器 → 工作区横幅）均有自动化覆盖
 
 自动化通过不替代下列桌面真机音频验收。
+
+> macOS 真机项（13.x mic-only、14.4+ dual、睡眠/恢复、设备切换、45 分钟长录、
+> 暂停守恒、签名候选包）仍为 Loop 9 真机验收清单，本环境无物理 Mac，如实标记
+> `BLOCKED`（见下方「结果：阻塞」）。不得以另一平台推断通过。
 
 ## macOS 13.0+
 

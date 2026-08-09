@@ -82,6 +82,65 @@ void main() {
     await pause;
     expect(coordinator.state, RecordingState.paused);
   });
+
+  test(
+    'a native write-error is exposed and sticky until reset (R-05)',
+    () async {
+      final platform = _WriteErrorCapturePlatform();
+      final coordinator = RecordingCoordinator(
+        capture: AudioCapture(platform: platform),
+      );
+      addTearDown(coordinator.dispose);
+      // The event stream is listened to lazily on first access; the
+      // coordinator subscribes in its constructor, so give the broadcast a
+      // turn to attach.
+      await Future<void>.delayed(Duration.zero);
+      expect(coordinator.writeErrorMessage, isNull);
+      platform.emitWriteError('磁盘空间不足');
+      await Future<void>.delayed(Duration.zero);
+      expect(coordinator.writeErrorMessage, '磁盘空间不足');
+      // Sticky: a second event keeps the first message's meaning; the capture
+      // already stopped writing, so the UI must keep warning.
+      platform.emitWriteError('设备已移除');
+      await Future<void>.delayed(Duration.zero);
+      expect(coordinator.writeErrorMessage, '设备已移除');
+      // reset() clears it for the next meeting.
+      coordinator.reset();
+      expect(coordinator.writeErrorMessage, isNull);
+    },
+  );
+}
+
+class _WriteErrorCapturePlatform extends AudioCapturePlatform {
+  final _controller = StreamController<Map<String, Object?>>.broadcast();
+
+  @override
+  Stream<Map<String, Object?>> get events => _controller.stream;
+
+  void emitWriteError(String message) {
+    _controller.add({'type': 'writeError', 'value': message});
+  }
+
+  @override
+  Future<Map<String, Object?>> start() async => {
+    'systemAudioAvailable': true,
+    'microphoneAvailable': true,
+  };
+
+  @override
+  Future<void> pause() async {}
+
+  @override
+  Future<void> resume() async {}
+
+  @override
+  Future<String> stop() async => '/tmp/r05.wav';
+
+  @override
+  Future<Map<String, Object?>> permissionStatus() async => {};
+
+  @override
+  Future<void> openPermissionSettings({String? permission}) async {}
 }
 
 class _FakeCapturePlatform extends AudioCapturePlatform {

@@ -18,7 +18,12 @@ import 'helpers/test_app_services.dart';
 /// session.
 void main() {
   Future<void> pump(tester, MeetingWorkspace widget) async {
-    await tester.pumpWidget(MaterialApp(home: Scaffold(body: widget)));
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: easyMeetingTheme(Brightness.light),
+        home: Scaffold(body: widget),
+      ),
+    );
   }
 
   testWidgets('paused state relabels timer, icon and controls', (tester) async {
@@ -109,6 +114,60 @@ void main() {
     expect(find.text('系统声音不可用，本次仅录制麦克风。'), findsOneWidget);
     expect(find.text('实时转写已中断，录音仍在继续'), findsOneWidget);
     // The degraded notice is not shown when the live stream is healthy.
+  });
+
+  testWidgets('native write failure shows a persistent error banner (R-05)', (
+    tester,
+  ) async {
+    await pump(
+      tester,
+      MeetingWorkspace(
+        elapsed: const Duration(minutes: 1),
+        systemLevel: .5,
+        microphoneLevel: .7,
+        systemAudioAvailable: true,
+        microphoneAvailable: true,
+        isPaused: false,
+        transitioning: false,
+        highlightCount: 0,
+        connectionLabel: '实时转写已连接',
+        transcriptLines: const [],
+        realtimeSupported: true,
+        writeErrorMessage: '磁盘空间不足',
+        onPauseResume: () {},
+        onStop: () {},
+        onHighlight: () {},
+      ),
+    );
+    expect(find.text('录音写入失败，已停止保存：磁盘空间不足'), findsOneWidget);
+    expect(find.byIcon(Icons.error_outline), findsOneWidget);
+    // The recording controls are still reachable so the user can stop.
+    expect(find.text('结束录音'), findsOneWidget);
+  });
+
+  testWidgets('no error banner when the capture is writing cleanly (R-05)', (
+    tester,
+  ) async {
+    await pump(
+      tester,
+      MeetingWorkspace(
+        elapsed: const Duration(minutes: 1),
+        systemLevel: .5,
+        microphoneLevel: .7,
+        systemAudioAvailable: true,
+        microphoneAvailable: true,
+        isPaused: false,
+        transitioning: false,
+        highlightCount: 0,
+        connectionLabel: '实时转写已连接',
+        transcriptLines: const [],
+        realtimeSupported: true,
+        onPauseResume: () {},
+        onStop: () {},
+        onHighlight: () {},
+      ),
+    );
+    expect(find.textContaining('录音写入失败'), findsNothing);
   });
 
   testWidgets('highlight count is displayed on the mark control', (

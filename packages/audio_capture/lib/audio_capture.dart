@@ -51,6 +51,15 @@ class AudioCapture {
   Stream<double> get microphoneLevel => _doubleEvents('microphoneLevel');
   Stream<bool> get systemSilent => _boolEvents('systemSilent');
   Stream<bool> get microphoneSilent => _boolEvents('microphoneSilent');
+
+  /// Emits when the native capture could not write audio to disk (R-05). The
+  /// value is a human-readable description of the write failure. Once emitted,
+  /// native recording stops writing new samples, so the UI must surface this
+  /// promptly rather than let the user believe the capture is still complete.
+  Stream<String> get writeError => _platform.events
+      .where((event) => event['type'] == 'writeError')
+      .map((event) => event['value'] as String? ?? '录音写入失败');
+
   Stream<AudioFrame> get pcmFrames => _platform.pcmFrames;
 
   Future<AudioCaptureStartResult> start() async =>

@@ -1,21 +1,4 @@
 import AVFoundation
-import Foundation
-
-enum MacAudioError: LocalizedError {
-  case alreadyRunning
-  case notRunning
-  case microphoneUnavailable
-  case systemAudioUnavailable(OSStatus)
-
-  var errorDescription: String? {
-    switch self {
-    case .alreadyRunning: return "录音已经开始。"
-    case .notRunning: return "当前没有正在进行的录音。"
-    case .microphoneUnavailable: return "麦克风不可用，请检查权限和输入设备。"
-    case .systemAudioUnavailable: return "系统声音采集不可用。"
-    }
-  }
-}
 
 struct MacAudioAvailability {
   let systemAudio: Bool
@@ -204,12 +187,22 @@ final class MacOSAudioCapture {
   }
 
   private func handleMicrophone(_ buffer: AVAudioPCMBuffer) {
-    let level = AudioMeter.level(buffer)
+    let level = _microphoneLevel(buffer)
     onEvent?("microphoneLevel", level)
     let seconds = Double(buffer.frameLength) / max(1, buffer.format.sampleRate)
     if let silent = microphoneSilence.update(level: level, seconds: seconds) {
       onEvent?("microphoneSilent", silent)
     }
+  }
+
+  private func _microphoneLevel(_ buffer: AVAudioPCMBuffer) -> Float {
+    guard let data = buffer.floatChannelData else { return 0 }
+    var result: Float = 0
+    for channel in 0..<Int(buffer.format.channelCount) {
+      let values = Array(UnsafeBufferPointer(start: data[channel], count: Int(buffer.frameLength)))
+      result += AudioMeter.rms(values)
+    }
+    return result / Float(max(1, Int(buffer.format.channelCount)))
   }
 
   private func write(_ buffer: AVAudioPCMBuffer) {
@@ -239,7 +232,11 @@ final class MacOSAudioCapture {
         )
       }
     } catch {
+      // R-05: a write failure must not silently truncate the recording. Stop
+      // writing new samples and surface the error to Dart so the UI can warn
+      // the user that the on-disk capture is incomplete.
       writing = false
+      onEvent?("writeError", error.localizedDescription)
     }
   }
 
@@ -280,68 +277,4 @@ final class MacOSAudioCapture {
     self.mixer = nil
     self.engine = nil
   }
-}
-
-private final class AudioRingBuffer {
-  private var storage = [Float](repeating: 0, count: 96_000)
-  private var writeIndex = 0
-  private var readIndex = 0
-  private var available = 0
-  private let lock = NSLock()
-
-  func write(_ samples: UnsafePointer<Float>, count: Int) {
-    lock.lock(); defer { lock.unlock() }
-    for index in 0..<count {
-      storage[writeIndex] = samples[index]
-      writeIndex = (writeIndex + 1) % storage.count
-      if available == storage.count { readIndex = (readIndex + 1) % storage.count }
-      else { available += 1 }
-    }
-  }
-
-  func read(into output: UnsafeMutablePointer<Float>, count: Int) {
-    lock.lock(); defer { lock.unlock() }
-    let amount = min(count, available)
-    for index in 0..<amount {
-      output[index] = storage[readIndex]
-      readIndex = (readIndex + 1) % storage.count
-    }
-    available -= amount
-    if amount < count { for index in amount..<count { output[index] = 0 } }
-  }
-
-  func reset() { lock.lock(); writeIndex = 0; readIndex = 0; available = 0; lock.unlock() }
-}
-
-private enum AudioMeter {
-  static func rms(_ samples: [Float]) -> Float {
-    guard !samples.isEmpty else { return 0 }
-    return min(1, sqrt(samples.reduce(0) { $0 + $1 * $1 } / Float(samples.count)))
-  }
-
-  static func level(_ buffer: AVAudioPCMBuffer) -> Float {
-    guard let data = buffer.floatChannelData else { return 0 }
-    var result: Float = 0
-    for channel in 0..<Int(buffer.format.channelCount) {
-      let values = Array(UnsafeBufferPointer(start: data[channel], count: Int(buffer.frameLength)))
-      result += rms(values)
-    }
-    return result / Float(max(1, Int(buffer.format.channelCount)))
-  }
-}
-
-private final class SilenceDetector {
-  private var accumulation = 0.0
-  private var silent = false
-  func update(level: Float, seconds: Double) -> Bool? {
-    if level < 0.005 {
-      accumulation += seconds
-      if !silent && accumulation >= 2.5 { silent = true; return true }
-    } else {
-      accumulation = 0
-      if silent { silent = false; return false }
-    }
-    return nil
-  }
-  func reset() { accumulation = 0; silent = false }
 }
