@@ -5,7 +5,7 @@ Loop: 2 — Desktop shell, navigation, brand, responsive shell (Calm Focus)
 ## Baseline
 
 - Base SHA: `7f4cb222dc6d41029d98f491eba65709cb0f1d97` (Loop 1 exact commit)
-- Implementation commit: <filled at commit time with `git rev-parse HEAD`>
+- Implementation commit: `cbf722db5f33ac3d35891477d1d73a6a8ad93b35`
 - Branch: `agent/macos-deliverable`
 - Platform gate that authorized start: Loop 1 `OVERALL_LOOP1=APPROVED` (see
   `docs/acceptance/loop-1-acceptance.md`).
@@ -124,12 +124,21 @@ Findings:
 
 Verdict: `APPROVE`.
 
+## CI evidence (exact SHA `cbf722d`)
+
+- Shared quality run `31328411528` — `status: completed`, `conclusion: success`.
+- Platform builds run `31328412917` — `status: completed`, `conclusion: success`.
+  macOS and Windows Release jobs both `success`; Android/iOS jobs did not regress.
+- Monitored via the unauthenticated GitHub Actions REST API
+  (`api.github.com/repos/lyubaoze999-alt/easy-meeting/actions/runs/...`).
+
 ## Gate status
 
 - `CODE_GATE`: APPROVED — diff in whitelist; format/analyze clean.
 - `VISUAL_GATE`: APPROVED — 8 + 4 deterministic light/dark screenshots at
   1080×720 and 880×600, hashes verified.
 - `REVIEW_GATE`: APPROVED — internal review above, no P0/P1/P2.
-- `PLATFORM_GATE`: PENDING — requires exact-commit Windows + macOS Release CI
-  green (monitored after push).
-- `OVERALL_LOOP2`: PENDING_PLATFORM_GATE until both platform builds confirm.
+- `PLATFORM_GATE`: APPROVED — exact-commit macOS + Windows Release CI both green.
+- `OVERALL_LOOP2`: APPROVED.
+
+Proceeding to Loop 3 (permission onboarding and platform capability).
