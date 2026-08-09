@@ -84,6 +84,6 @@ the presentational screen with Calm Focus theme at 1080×720 and 880×600.
 
 - `CODE_GATE`: APPROVED.
 - `REVIEW_GATE`: APPROVED.
-- `PLATFORM_GATE`: PENDING — exact-commit CI on Loop 6 branch top (fill after
-  Shared quality + Platform builds).
-- `OVERALL_LOOP6`: APPROVED (pending exact-commit platform confirmation).
+- `PLATFORM_GATE`: APPROVED — exact-commit CI on Loop 6 branch top `d829ce2`:
+  Shared quality `success`, Platform builds `success`.
+- `OVERALL_LOOP6`: APPROVED.
