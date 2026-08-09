@@ -230,9 +230,10 @@ class _RecordingScreenState extends ConsumerState<RecordingScreen> {
       ),
     );
     if (confirmed != true) return;
+    if (!mounted) return;
     await _run(() async {
       await session.stopRecording();
-      ref.invalidate(meetingLibraryProvider);
+      if (mounted) ref.invalidate(meetingLibraryProvider);
     });
   }
 

@@ -88,40 +88,44 @@ void main() {
     }
   }
 
-  for (final brightness in Brightness.values) {
-    final mode = brightness == Brightness.dark ? 'dark' : 'light';
-    testWidgets('workspace local-only $mode renders (no live panel)', (
-      tester,
-    ) async {
-      tester.view.physicalSize = const Size(1080, 720);
-      tester.view.devicePixelRatio = 1.0;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
-      await tester.pumpWidget(
-        MaterialApp(
-          debugShowCheckedModeBanner: false,
-          theme: easyMeetingTheme(Brightness.light),
-          darkTheme: easyMeetingTheme(Brightness.dark),
-          themeMode: brightness == Brightness.dark
-              ? ThemeMode.dark
-              : ThemeMode.light,
-          home: Scaffold(body: workspace(realtimeSupported: false)),
-        ),
-      );
-      for (var i = 0; i < 4; i++) {
-        await tester.pump(const Duration(milliseconds: 50));
-      }
-      if (Platform.environment['EM_GEN_GOLDENS'] == '1') {
-        await expectLater(
-          find.byType(MeetingWorkspace),
-          matchesGoldenFile('goldens/recording-workspace/local-only-$mode.png'),
+  for (final width in const [1080.0, 680.0]) {
+    final sizeLabel = width >= 760 ? 'extended' : 'compact';
+    for (final brightness in Brightness.values) {
+      final mode = brightness == Brightness.dark ? 'dark' : 'light';
+      testWidgets('workspace local-only $sizeLabel $mode renders (no live '
+          'panel)', (tester) async {
+        tester.view.physicalSize = Size(width, 720);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        await tester.pumpWidget(
+          MaterialApp(
+            debugShowCheckedModeBanner: false,
+            theme: easyMeetingTheme(Brightness.light),
+            darkTheme: easyMeetingTheme(Brightness.dark),
+            themeMode: brightness == Brightness.dark
+                ? ThemeMode.dark
+                : ThemeMode.light,
+            home: Scaffold(body: workspace(realtimeSupported: false)),
+          ),
         );
-      } else {
-        expect(tester.takeException(), isNull);
-        expect(find.text('当前平台无法实时转写'), findsOneWidget);
-        expect(find.text('实时文字'), findsNothing);
-        expect(find.text('结束录音'), findsOneWidget);
-      }
-    });
+        for (var i = 0; i < 4; i++) {
+          await tester.pump(const Duration(milliseconds: 50));
+        }
+        if (Platform.environment['EM_GEN_GOLDENS'] == '1') {
+          await expectLater(
+            find.byType(MeetingWorkspace),
+            matchesGoldenFile(
+              'goldens/recording-workspace/local-only-$sizeLabel-$mode.png',
+            ),
+          );
+        } else {
+          expect(tester.takeException(), isNull);
+          expect(find.text('当前平台无法实时转写'), findsOneWidget);
+          expect(find.text('实时文字'), findsNothing);
+          expect(find.text('结束录音'), findsOneWidget);
+        }
+      });
+    }
   }
 }

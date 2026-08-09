@@ -16,7 +16,8 @@
    确认才执行安全结束（原生停止 → WAV 校验 → 数据库归档）。明确不承诺任何 AI 工作。
 3. **状态机 / 暂停 / 继续 / 重点 / 断网降级**：由真实会话与实时 provider 驱动，
    本轮以契约测试固定其行为（过渡期控件禁用、降级提示文案、标记重点计数）。
-4. 工作区应用 Calm Focus 视觉，1080×720 与 880×600、light/dark 无溢出。
+4. 工作区应用 Calm Focus 视觉，1080×720（宽 / Row 布局）与 680×720（窄 / Column
+   布局，<760px）、light/dark 无溢出。
 
 ## 2. 文件白名单
 
@@ -35,8 +36,8 @@
 
 ### 4.2 视觉冒烟测试授权
 
-`test/loop5_visual_test.dart` 以 1080×720 与 880×600 确定性渲染真实
-`MeetingWorkspace`（with/without realtime，light/dark × 两种宽度）。像素级 golden
+`test/loop5_visual_test.dart` 以 1080×720 与 680×720 确定性渲染真实
+`MeetingWorkspace`（with/without realtime，light/dark × 扩展/紧凑两种宽度）。像素级 golden
 通过 `EM_GEN_GOLDENS=1` 门控；默认 CI 路径为确定性冒烟断言（无渲染异常、关键控件
 存在）。golden PNG 产出在 `test/goldens/recording-workspace/`，属仓库外证据（不提交），
 其 SHA-256 录入 `loop-5-review.md`。

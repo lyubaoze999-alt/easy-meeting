@@ -34,7 +34,7 @@ differences:
 | `test/recording_workspace_widget_test.dart` (new) | State-machine + R-09 + real-session safe-end dialog tests. |
 | `test/recording_redesign_widget_test.dart` | Updated for `realtimeSupported`; added R-09 assertion. |
 | `test/loop5_visual_test.dart` (new) | Workspace realtime extended/compact + local-only, light/dark. |
-| `test/goldens/recording-workspace/*.png` | 6 generated pixel goldens (repo-external evidence, SHA-256 below). |
+| `test/goldens/recording-workspace/*.png` | 8 generated pixel goldens (repo-external evidence, SHA-256 below). |
 | `docs/architecture/loop-5-contract.md`, `loop-5-review.md` | This slice's contract + review. |
 
 ## Commands and results
@@ -44,12 +44,12 @@ differences:
 | `dart format` on 5 touched files | 0 changed — PASS |
 | `flutter analyze --no-pub` | `No issues found!` — PASS |
 | `flutter test` | `All tests passed!` — 167 tests PASS |
-| `EM_GEN_GOLDENS=1 flutter test test/loop5_visual_test.dart --update-goldens` | 6/6 PASS; goldens written |
+| `EM_GEN_GOLDENS=1 flutter test test/loop5_visual_test.dart --update-goldens` | 8/8 PASS; goldens written |
 | `flutter test test/loop5_visual_test.dart test/recording_workspace_widget_test.dart test/recording_redesign_widget_test.dart` | 15/15 PASS (smoke path, no env) |
 
 ## Visual evidence (repo-external goldens)
 
-The 6 generated goldens are local evidence and are not byte-compared on CI
+The 8 generated goldens are local evidence and are not byte-compared on CI
 (Ubuntu CJK font differs from this Windows host; same decision as prior loops).
 Per contract §11 ("PNG 不进入 git diff") they are kept untracked (not in the
 diff) and verified by recorded SHA-256:
@@ -60,8 +60,10 @@ diff) and verified by recorded SHA-256:
 | `test/goldens/recording-workspace/realtime-extended-dark.png` | `1be106b4bbb7b3c0ddb5759d114ac66713e38972042fb329363a881f458dfdad` |
 | `test/goldens/recording-workspace/realtime-compact-light.png` | `ceeb7219af29956e34ed855b1ebd9ffce2bcf24a61ea0f425ddb1f4076c88980` |
 | `test/goldens/recording-workspace/realtime-compact-dark.png` | `5635a7c80bc0b941b463df1d63248e7dbedd5c6c4ee7763dca0f54bc27b89baa` |
-| `test/goldens/recording-workspace/local-only-light.png` | `b8e717d80eca0d53a9783794a4f29393ab348eac2b28d892e7265c41de9c75ff` |
-| `test/goldens/recording-workspace/local-only-dark.png` | `ed73bd700381432a3dd1e20472334a59d8f79bc0eb67d6e3fecad60305b8f9de` |
+| `test/goldens/recording-workspace/local-only-extended-light.png` | `b8e717d80eca0d53a9783794a4f29393ab348eac2b28d892e7265c41de9c75ff` |
+| `test/goldens/recording-workspace/local-only-extended-dark.png` | `ed73bd700381432a3dd1e20472334a59d8f79bc0eb67d6e3fecad60305b8f9de` |
+| `test/goldens/recording-workspace/local-only-compact-light.png` | `3e65da2e2d26fc340a9f753dcc6523b2f921b5e5322dac06dc6f811275433379` |
+| `test/goldens/recording-workspace/local-only-compact-dark.png` | `174833c05aeaf5dd856878ce4f4f659b320f9695f4a8dcfd1386f76b8f875b38` |
 
 The workspace is a pure presentational widget (no provider), so the visual test
 renders it directly with the Calm Focus theme using fixed-duration pumps. The
@@ -71,10 +73,15 @@ via the `TestAppServices` harness built in `setUp`.
 ## Internal review
 
 - P0/P1/P2: none.
-- P3: `_stopMeeting`'s dialog uses the State context; navigation away mid-dialog
-  is still safe because `session.stopRecording()` is context-free. P3: the
-  `_LocalOnlyPanel` copy overlaps conceptually with the prep-screen realtime
-  subtitle but serves a different moment. Both accepted.
+- P3 (found, fixed): the local-only compact (<760px) branch was untested and the
+  contract text said 880×600 (which is actually a wide width). Added 680×720
+  local-only visual cases and corrected the contract; added a `mounted` guard
+  after the safe-end dialog.
+- P3 (accepted): rapid double-tap could stack two "结束录音" dialogs
+  (button not disabled while pending); `_stopMeeting`'s dialog uses the State
+  context but `session.stopRecording()` is context-free; `_LocalOnlyPanel` copy
+  overlaps conceptually with the prep-screen subtitle but serves a different
+  moment. All accepted / noted for Loop 8.
 - Verdict: `APPROVE`.
 
 ## Gate status
