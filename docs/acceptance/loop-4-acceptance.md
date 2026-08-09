@@ -77,6 +77,7 @@ RecordingCoordinator drives a continuous animation that would never settle.
 
 - `CODE_GATE`: APPROVED.
 - `REVIEW_GATE`: APPROVED.
-- `PLATFORM_GATE`: PENDING — exact-commit CI on this Loop 4 SHA (Shared quality +
-  macOS + Windows Release/MSIX) to be recorded once green.
-- `OVERALL_LOOP4`: PENDING PLATFORM.
+- `PLATFORM_GATE`: APPROVED — exact-commit CI on `36b9407`: Shared quality
+  `31331408066` ✅, Platform builds `31331408082` ✅ (macOS + Windows Release/MSIX).
+  Feature SHA `4a1c17d` also green (Shared `31331264490` ✅, Platform `31331264468` ✅).
+- `OVERALL_LOOP4`: APPROVED.
