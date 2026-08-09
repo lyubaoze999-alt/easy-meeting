@@ -342,9 +342,7 @@ ThemeData easyMeetingTheme(Brightness brightness) {
     BorderSide? side,
   }) {
     return ButtonStyle(
-      minimumSize: WidgetStatePropertyAll(
-        Size(0, tokens.buttonMinHeight),
-      ),
+      minimumSize: WidgetStatePropertyAll(Size(0, tokens.buttonMinHeight)),
       padding: WidgetStatePropertyAll(
         EdgeInsets.symmetric(horizontal: tokens.space16),
       ),
