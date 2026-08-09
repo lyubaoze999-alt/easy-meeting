@@ -38,7 +38,7 @@ private func testRingBufferOrderAndOverrun() throws {
   samples.withUnsafeBufferPointer { ring.write($0.baseAddress!, count: 3) }
   var out = [Float](repeating: 0, count: 8)
   var read = ring.read(into: &out, count: 3)
-  try require(out.prefix(3) == [1, 2, 3], "Ring buffer must return samples in order")
+  try require(Array(out.prefix(3)) == [1, 2, 3], "Ring buffer must return samples in order")
   try require(read == 3, "read should consume exactly the written count")
 
   // Write more than capacity: ring must drop the oldest, not block.
