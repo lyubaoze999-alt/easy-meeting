@@ -4,7 +4,6 @@ import 'package:easy_meeting/domain/models/asset_status.dart';
 import 'package:easy_meeting/domain/models/meeting_note.dart';
 import 'package:easy_meeting/domain/models/meeting_record.dart';
 import 'package:easy_meeting/domain/models/note_template.dart';
-import 'package:easy_meeting/domain/models/recording_asset.dart';
 import 'package:easy_meeting/domain/models/transcript_document.dart';
 import 'package:easy_meeting/ui/library/meeting_library_screen.dart';
 import 'package:easy_meeting/ui/theme/theme_tokens.dart';
