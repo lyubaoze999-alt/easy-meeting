@@ -262,10 +262,18 @@ class _DesktopNavDestinationState extends State<_DesktopNavDestination> {
                   selected: selected,
                   inMutuallyExclusiveGroup: true,
                   child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 120),
+                    // Respect the system "reduce motion" accessibility
+                    // setting: when animations are disabled the selection
+                    // state switches instantly instead of animating.
+                    duration: MediaQuery.disableAnimationsOf(context)
+                        ? Duration.zero
+                        : const Duration(milliseconds: 120),
                     curve: Curves.easeOut,
                     constraints: BoxConstraints(
-                      minHeight: widget.extended ? 48 : 40,
+                      // WCAG 2.5.5: the compact rail item is padded to the same
+                      // 48px minimum as the extended item so the tap target is
+                      // ≥48px in both modes.
+                      minHeight: 48,
                       minWidth: 40,
                     ),
                     margin: EdgeInsets.symmetric(

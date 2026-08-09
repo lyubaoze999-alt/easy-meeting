@@ -138,6 +138,13 @@ class _LiveTranscriptPanelState extends State<LiveTranscriptPanel> {
 
   void _scrollToLatest() {
     if (!_scrollController.hasClients) return;
+    // Respect the system "reduce motion" setting: jump straight to the latest
+    // line instead of animating the scroll.
+    final disableAnimations = MediaQuery.disableAnimationsOf(context);
+    if (disableAnimations) {
+      _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+      return;
+    }
     _scrollController.animateTo(
       _scrollController.position.maxScrollExtent,
       duration: const Duration(milliseconds: 180),
