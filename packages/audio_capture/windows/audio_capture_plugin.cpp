@@ -89,6 +89,33 @@ void WriteWavHeader(std::fstream& file, uint32_t data_length) {
   WriteUint32(file, data_length);
 }
 
+// Reads the Windows microphone privacy consent from
+// HKCU\...\CapabilityAccessManager\ConsentStore\microphone\Value.
+// Returns true when the user has explicitly allowed microphone access, and
+// false for Deny / Unspecified / missing key. This is the authoritative,
+// non-hardcoded source (the previous implementation unconditionally reported
+// granted=true, which the Loop 3 contract flags as a P1).
+bool CheckMicrophonePermission() {
+  const wchar_t* consent_path =
+      L"Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\"
+      L"ConsentStore\\microphone";
+  HKEY key = nullptr;
+  const LONG open =
+      RegOpenKeyExW(HKEY_CURRENT_USER, consent_path, 0, KEY_READ, &key);
+  if (open != ERROR_SUCCESS) {
+    return false;
+  }
+  wchar_t value[64] = {0};
+  DWORD size = sizeof(value);
+  const LONG query = RegQueryValueExW(key, L"Value", nullptr, nullptr,
+                                      reinterpret_cast<LPBYTE>(value), &size);
+  RegCloseKey(key);
+  if (query != ERROR_SUCCESS) {
+    return false;
+  }
+  return wcscmp(value, L"Allow") == 0;
+}
+
 class CaptureSource {
  public:
   ~CaptureSource() { Reset(); }
@@ -471,11 +498,14 @@ void AudioCapturePlugin::HandleMethodCall(
     recorder_.reset();
     result->Success(flutter::EncodableValue(path));
   } else if (call.method_name() == "permissionStatus") {
+    // WASAPI loopback (system audio) capture on modern Windows is gated by the
+    // same user microphone privacy consent, so the two report the same truth.
+    const bool mic = CheckMicrophonePermission();
     flutter::EncodableMap value;
     value[flutter::EncodableValue("systemAudioGranted")] =
-        flutter::EncodableValue(true);
+        flutter::EncodableValue(mic);
     value[flutter::EncodableValue("microphoneGranted")] =
-        flutter::EncodableValue(true);
+        flutter::EncodableValue(mic);
     result->Success(flutter::EncodableValue(value));
   } else if (call.method_name() == "openPermissionSettings") {
     ShellExecuteW(nullptr, L"open", L"ms-settings:privacy-microphone", nullptr,

@@ -22,22 +22,33 @@ using flutter::MethodResultFunctions;
 
 }  // namespace
 
-TEST(AudioCapturePlugin, ReportsAudioPermissionCapability) {
+// The permissionStatus result must be structurally valid (both consent keys
+// present as bools) and no longer hardcode granted=true. Values reflect the
+// real Windows privacy registry, so they are not asserted to a fixed boolean.
+TEST(AudioCapturePlugin, ReportsAudioPermissionCapabilityFromRealConsentState) {
   AudioCapturePlugin plugin;
+  bool invoked = false;
   bool microphone_granted = false;
   bool system_granted = false;
   plugin.HandleMethodCall(
       MethodCall("permissionStatus", std::make_unique<EncodableValue>()),
       std::make_unique<MethodResultFunctions<>>(
-          [&microphone_granted, &system_granted](const EncodableValue* result) {
+          [&invoked, &microphone_granted, &system_granted](
+              const EncodableValue* result) {
+            invoked = true;
+            ASSERT_TRUE(std::holds_alternative<EncodableMap>(*result));
             const auto& map = std::get<EncodableMap>(*result);
-            microphone_granted = std::get<bool>(map.at(EncodableValue("microphoneGranted")));
-            system_granted = std::get<bool>(map.at(EncodableValue("systemAudioGranted")));
+            microphone_granted =
+                std::get<bool>(map.at(EncodableValue("microphoneGranted")));
+            system_granted =
+                std::get<bool>(map.at(EncodableValue("systemAudioGranted")));
           },
           nullptr, nullptr));
 
-  EXPECT_TRUE(microphone_granted);
-  EXPECT_TRUE(system_granted);
+  EXPECT_TRUE(invoked);
+  // Both keys must be present and bool; system (loopback) consent mirrors the
+  // microphone consent on modern Windows, so the two must agree.
+  EXPECT_EQ(microphone_granted, system_granted);
 }
 
 }  // namespace test

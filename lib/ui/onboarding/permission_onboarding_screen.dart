@@ -4,9 +4,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app_services/providers.dart';
 import '../../domain/models/platform_profile.dart';
+import '../theme/theme_tokens.dart';
 
 class PermissionOnboardingScreen extends ConsumerStatefulWidget {
-  const PermissionOnboardingScreen({super.key});
+  const PermissionOnboardingScreen({super.key, this.capture});
+
+  /// Overridable so widget tests can inject a stubbed [AudioCapture] instead of
+  /// the native plugin. Production uses the default instance.
+  final AudioCapture? capture;
 
   @override
   ConsumerState<PermissionOnboardingScreen> createState() =>
@@ -15,7 +20,7 @@ class PermissionOnboardingScreen extends ConsumerStatefulWidget {
 
 class _PermissionOnboardingScreenState
     extends ConsumerState<PermissionOnboardingScreen> {
-  final capture = AudioCapture();
+  late final AudioCapture capture = widget.capture ?? AudioCapture();
   AudioPermissionStatus? status;
   bool loading = true;
 
@@ -143,14 +148,28 @@ class _PermissionTile extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) => Card(
-    child: ListTile(
-      leading: Icon(icon),
-      title: Text(title),
-      subtitle: Text(description),
-      trailing: granted
-          ? const Chip(label: Text('已授权'))
-          : OutlinedButton(onPressed: onTap, child: const Text('去授权')),
-    ),
-  );
+  Widget build(BuildContext context) {
+    final tokens = Theme.of(context).extension<ThemeTokens>()!;
+    return Card(
+      child: ListTile(
+        leading: Icon(icon),
+        title: Text(title),
+        subtitle: Text(description),
+        trailing: granted
+            ? Chip(
+                avatar: Icon(
+                  Icons.check_circle,
+                  size: 18,
+                  color: tokens.success,
+                ),
+                label: const Text('已授权'),
+                labelStyle: TextStyle(
+                  color: tokens.success,
+                  fontWeight: FontWeight.w500,
+                ),
+              )
+            : OutlinedButton(onPressed: onTap, child: const Text('去授权')),
+      ),
+    );
+  }
 }
