@@ -12,11 +12,36 @@ import '../../domain/models/recording_asset.dart';
 import 'meeting_library_screen.dart';
 import 'note_exporter.dart';
 
-class ConnectedMeetingLibraryScreen extends ConsumerWidget {
+class ConnectedMeetingLibraryScreen extends ConsumerStatefulWidget {
   const ConnectedMeetingLibraryScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ConnectedMeetingLibraryScreen> createState() =>
+      _ConnectedMeetingLibraryScreenState();
+}
+
+class _ConnectedMeetingLibraryScreenState
+    extends ConsumerState<ConnectedMeetingLibraryScreen> {
+  /// Debounces the search box (R-10): a keystroke does not immediately trigger
+  /// a full bundle recompute; we wait 250ms after the last change.
+  Timer? _searchDebounce;
+
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    super.dispose();
+  }
+
+  void _onSearchChanged(String query) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 250), () {
+      if (!mounted) return;
+      ref.read(meetingLibraryProvider.notifier).load(query: query);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final state = ref.watch(meetingLibraryProvider);
     return state.when(
       loading: () => Scaffold(
@@ -43,11 +68,14 @@ class ConnectedMeetingLibraryScreen extends ConsumerWidget {
                 transcript: bundle.transcript,
                 note: bundle.note,
                 transcriptText: bundle.transcriptText,
+                // R-04: project the real asset state so the list and the
+                // detail screen agree (no optimistic defaults).
+                recordingStatus: bundle.recordingStatus,
+                noteStatus: bundle.noteStatus,
               ),
             )
             .toList(growable: false),
-        onSearchChanged: (query) =>
-            ref.read(meetingLibraryProvider.notifier).load(query: query),
+        onSearchChanged: _onSearchChanged,
         onPlayRecording: (_, recording) =>
             unawaited(_openRecording(context, recording)),
         onRevealRecording: (_, recording) =>

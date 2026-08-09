@@ -1,13 +1,15 @@
 import 'package:flutter/material.dart';
 
+import '../../domain/models/asset_status.dart';
 import '../../domain/models/meeting_note.dart';
 import '../../domain/models/meeting_record.dart';
 import '../../domain/models/recording_asset.dart';
 import '../../domain/models/transcript_document.dart';
 
-enum RecordingDisplayStatus { playable, missing, damaged }
-
-enum MeetingNoteDisplayStatus { notGenerated, processing, ready, failed }
+// Re-export the asset-status enums so existing importers of this screen keep
+// compiling; the authoritative definition now lives in the domain layer.
+export '../../domain/models/asset_status.dart'
+    show RecordingDisplayStatus, MeetingNoteDisplayStatus;
 
 class MeetingDetailScreen extends StatelessWidget {
   const MeetingDetailScreen({

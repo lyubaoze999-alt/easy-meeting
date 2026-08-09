@@ -39,6 +39,11 @@ app.*.symbols
 # Obfuscation related
 app.*.map.json
 
+# Generated visual evidence (goldens / screenshots) — repo-external, not committed
+/test/goldens/
+/test/screenshot/
+/ci_monitor.js
+
 # Android Studio will place build artifacts here
 /android/app/debug
 /android/app/profile
