@@ -1,5 +1,7 @@
 #include "audio_capture_plugin.h"
 
+#include "drift_mixer.h"
+
 #include <windows.h>
 
 #include <mmdeviceapi.h>
@@ -233,6 +235,7 @@ class WasapiRecorder {
     system_silent_ = false;
     microphone_queue_.clear();
     system_queue_.clear();
+    drift_mixer_.Reset();
     active_ = true;
     writing_ = true;
     std::promise<StartResult> promise;
@@ -376,19 +379,19 @@ class WasapiRecorder {
         if (microphone_queue_.empty()) continue;
         microphone = std::move(microphone_queue_.front());
         microphone_queue_.pop_front();
-        if (!system_queue_.empty()) {
-          system_audio = std::move(system_queue_.front());
+        // Drain every system block that has arrived so the drift mixer can
+        // resample the system stream onto the mic timeline rather than pairing
+        // one FIFO block against one mic block (which drifts over 45 min).
+        while (!system_queue_.empty()) {
+          auto block = std::move(system_queue_.front());
           system_queue_.pop_front();
+          system_audio.insert(system_audio.end(), block.begin(), block.end());
         }
       }
       if (!writing_) continue;
-      for (size_t index = 0; index < microphone.size(); ++index) {
-        int sample = microphone[index];
-        if (index < system_audio.size()) {
-          sample = (sample + system_audio[index]) / 2;
-        }
-        const int16_t output = static_cast<int16_t>(std::clamp(
-            sample, static_cast<int>(INT16_MIN), static_cast<int>(INT16_MAX)));
+      std::vector<int16_t> mixed;
+      drift_mixer_.Mix(microphone, system_audio, &mixed);
+      for (const int16_t output : mixed) {
         output_.write(reinterpret_cast<const char*>(&output), sizeof(output));
         data_length_ += static_cast<uint32_t>(sizeof(output));
       }
@@ -404,6 +407,7 @@ class WasapiRecorder {
   std::condition_variable queue_ready_;
   std::deque<std::vector<int16_t>> microphone_queue_;
   std::deque<std::vector<int16_t>> system_queue_;
+  DriftMixer drift_mixer_;
   std::filesystem::path output_path_;
   std::fstream output_;
   uint32_t data_length_ = 0;

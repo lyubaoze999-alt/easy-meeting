@@ -17,6 +17,12 @@
 - [x] Loop 9 原生逻辑（`MacAudioLogic`）swiftc 测试接入 macOS CI：静音迟滞、环形缓冲
   溢出去旧、RMS 电平、错误分类与降级文案、`writeError` 上报链（原生 → Dart →
   协调器 → 工作区横幅）均有自动化覆盖
+- [x] Loop 10 `DriftMixer`（R-07 双路漂移校正）纯 C++ 单元测试接入 Windows CI
+  （vswhere 定位 MSVC + cl 编译运行）：首调用 1:1 对齐、system 滞后时长守恒、
+  约 45 分钟长跑漂移有界、Reset 干净
+- [x] Windows 实时 PCM 维持已批准差异：不注册 `audio_capture/pcm` 通道，录音页按
+  R-09 显示「当前平台无法实时转写」能力提示而非误导性空面板（无 Windows 真机双路
+  采集，差异书面批准）
 
 自动化通过不替代下列桌面真机音频验收。
 
