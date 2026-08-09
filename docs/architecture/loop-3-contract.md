@@ -22,11 +22,23 @@
 - `packages/audio_capture/windows/test/audio_capture_plugin_test.cpp`（更新测试）
 - `lib/ui/onboarding/permission_onboarding_screen.dart`
 - `test/permission_onboarding_test.dart`（可新增）
+- `test/loop3_visual_test.dart`、`test/helpers/test_app_services.dart`（本轮新增的
+  确定性视觉冒烟测试与可复用内存 AppServices 夹具，见 §4.2）
 - `docs/architecture/loop-3-contract.md`、`loop-3-review.md`（首席文档）
 - `docs/acceptance/loop-3-acceptance.md`（证据）
 
 macOS 原生权限已真实（`AVCaptureDevice`/`CGPreflightScreenCaptureAccess`），本轮
 不改 macOS 原生；如需求要求，仅记录证据。
+
+### 4.2 视觉冒烟测试授权
+
+`test/loop3_visual_test.dart` 以 1080x720 确定性渲染真实
+`PermissionOnboardingScreen` 的 light/dark × granted/denied 四态。像素级 golden
+捕获通过环境变量 `EM_GEN_GOLDENS=1` 门控；默认 CI 路径为确定性冒烟断言（无渲染
+异常、widget 存在）。golden PNG 产出在 `test/goldens/onboarding/`，属仓库外证据
+（不提交），其 SHA-256 录入 `loop-3-review.md`。`test/helpers/test_app_services.dart`
+提供可复用内存 AppServices 夹具（`TestAppServices.create/dispose`），供多轮视觉
+冒烟复用。
 
 ## 3. Windows 权限探测设计
 

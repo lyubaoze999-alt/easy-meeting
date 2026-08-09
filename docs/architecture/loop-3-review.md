@@ -50,6 +50,26 @@ macOS permission was already real (`AVCaptureDevice.authorizationStatus` +
 
 Verdict: `APPROVE`.
 
+## Visual smoke evidence
+
+`test/loop3_visual_test.dart` deterministically renders the real
+`PermissionOnboardingScreen` at 1080x720 across light/dark × granted/denied; all
+4 cases pass as smoke assertions (no render exception, widget present). Pixel
+goldens were produced locally with `EM_GEN_GOLDENS=1` and are repo-external
+evidence under `test/goldens/onboarding/` (SHA-256):
+
+| File | SHA-256 |
+|---|---|
+| `dark-denied.png` | `0e77520954e5da7f268ed312aeca2a65139231c2c582028846c002dfb6c222d3` |
+| `dark-granted.png` | `0897d6c861bb55f9be44621ce8aff2fc16d15ea70a1b4ed6229e4dbd608e71d8` |
+| `light-denied.png` | `d91cd78678096cf9674f74d462710506d4789e47821a54dadcd0ba6555679b3a` |
+| `light-granted.png` | `6838512c46c974f059326ff0ae080c19dd255f114c82a207b5040d3a37c96917` |
+
+The visual test uses fixed-duration pumps (not `pumpAndSettle`) because the
+onboarding screen is built on the full `TestAppServices` harness whose
+RecordingCoordinator drives a continuous animation that would never settle —
+matching the Loop 2 visual-test pattern.
+
 ## Local quality commands (exact)
 
 | Command | Result |
