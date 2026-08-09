@@ -88,6 +88,8 @@ via the `TestAppServices` harness built in `setUp`.
 
 - `CODE_GATE`: APPROVED.
 - `REVIEW_GATE`: APPROVED.
-- `PLATFORM_GATE`: PENDING — exact-commit CI on the Loop 5 SHA (Shared quality +
-  macOS + Windows Release/MSIX) to be recorded once green.
-- `OVERALL_LOOP5`: PENDING PLATFORM.
+- `PLATFORM_GATE`: APPROVED — exact-commit CI on `1097f20` (Loop 5 branch top,
+  feature `975d9fd` + docs): Shared quality `31332048880` ✅, Platform builds
+  `31332048890` ✅ — macOS (`flutter build macos --release` + `create_dmg.sh`)
+  and Windows (`build_msix.ps1`) both success.
+- `OVERALL_LOOP5`: APPROVED.
