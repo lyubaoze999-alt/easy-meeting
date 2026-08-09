@@ -1,3 +1,5 @@
+import 'package:easy_meeting/ui/shell/desktop_navigation.dart';
+import 'package:easy_meeting/ui/shell/shell_focus.dart';
 import 'package:easy_meeting/ui/theme/theme_tokens.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -159,6 +161,56 @@ void main() {
       expect(minimumSize!.width, 0);
       expect(minimumSize.height, 40);
     }
+  });
+
+  group('desktop shell focus ring regression', () {
+    test('focus ring uses the focus token and a constant width', () {
+      final tokens = ThemeTokens.light;
+      final focused = shellFocusRingDecoration(
+        tokens: tokens,
+        focused: true,
+        background: tokens.primaryContainer,
+        borderRadius: BorderRadius.circular(tokens.radiusControl),
+      );
+      final border = focused.border as Border;
+      expect(border.top.color, tokens.focus);
+      expect(border.top.width, tokens.focusOutlineWidth);
+    });
+
+    test('unfocused ring keeps width so focus never shifts layout', () {
+      final tokens = ThemeTokens.dark;
+      final focused = shellFocusRingDecoration(
+        tokens: tokens,
+        focused: true,
+        background: const Color(0x00000000),
+        borderRadius: BorderRadius.zero,
+      );
+      final unfocused = shellFocusRingDecoration(
+        tokens: tokens,
+        focused: false,
+        background: const Color(0x00000000),
+        borderRadius: BorderRadius.zero,
+      );
+      final focusedBorder = focused.border as Border;
+      final unfocusedBorder = unfocused.border as Border;
+      expect(focusedBorder.top.width, unfocusedBorder.top.width);
+      expect(unfocusedBorder.top.color, Colors.transparent);
+    });
+  });
+
+  group('desktop shell breakpoint regression', () {
+    test('the breakpoint and rail width constants match the contract', () {
+      expect(kShellExtendedBreakpoint, 1080);
+      expect(kShellCompactRailWidth, 72);
+      expect(kShellExtendedRailWidth, 224);
+    });
+
+    test('1080 is Extended, 1079 and 880 are Compact', () {
+      expect(shellIsExtended(1079), isFalse);
+      expect(shellIsExtended(1080), isTrue);
+      expect(shellRailWidth(880), kShellCompactRailWidth);
+      expect(shellRailWidth(1440), kShellExtendedRailWidth);
+    });
   });
 }
 

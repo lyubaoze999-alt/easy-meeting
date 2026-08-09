@@ -66,6 +66,10 @@ Loop 2 只重构桌面壳层，不改变页面业务：
 - `test/desktop_navigation_test.dart`（可新增）
 - `test/shell_shortcuts_test.dart`（可新增）
 - `test/theme_tokens_test.dart`（仅追加导航/焦点回归）
+- `test/loop2_visual_test.dart`（可新增；视觉 smoke 门禁，见下方授权说明）
+- `test/screenshot/loop2_shell_golden_test.dart`（可新增；视觉 smoke 门禁，见下方授权说明）
+
+> 授权说明（开发首席 2026-08-10 更新）：§11.1 要求视觉证据来自仓库外 harness 且 PNG 不进入 git diff。为把 §9.2 的“880×600/1080×720 无 overflow”转化为可回归的确定性门禁，本切片允许上述两个测试文件以**烟测断言**形式留在 `test/`（渲染真实 `HomeShell`、断言无 overflow 异常与正确 rail 尺寸）。像素级 golden 捕获仅在本地 `EM_GEN_GOLDENS=1` 时启用；生成的 PNG 保持仓库外证据（不纳入 commit），其 SHA-256/字节数在 `loop-2-review.md` 记录。此授权不改变 §4.1 产品文件白名单与 §11 的 PNG 不入 diff 约束。
 
 ### 4.3 首席文档
 

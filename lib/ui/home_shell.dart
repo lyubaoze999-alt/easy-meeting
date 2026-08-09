@@ -6,10 +6,18 @@ import '../domain/models/platform_profile.dart';
 import 'library/connected_meeting_library_screen.dart';
 import 'recording/recording_screen.dart';
 import 'settings/settings_screen.dart';
+import 'shell/desktop_navigation.dart';
+import 'shell/shell_shortcuts.dart';
+import 'theme/theme_tokens.dart';
 import 'trash/trash_screen.dart';
 
 class HomeShell extends ConsumerStatefulWidget {
-  const HomeShell({super.key});
+  /// Creates the shell. [screens] is overridable so widget tests can mount the
+  /// real [HomeShell] with lightweight pages instead of the full provider-bound
+  /// business screens; production callers use the default [kHomeShellScreens].
+  const HomeShell({super.key, this.screens = kHomeShellScreens});
+
+  final List<Widget> screens;
 
   @override
   ConsumerState<HomeShell> createState() => _HomeShellState();
@@ -17,6 +25,16 @@ class HomeShell extends ConsumerStatefulWidget {
 
 class _HomeShellState extends ConsumerState<HomeShell> {
   int index = 0;
+
+  // Focus nodes for the desktop rail destinations. Kept on the shell so a
+  // keyboard shortcut can move focus to the newly selected destination and
+  // never leave it stranded on an IndexedStack page that is no longer visible.
+  final List<FocusNode> _destinationFocusNodes = [
+    FocusNode(debugLabel: 'shell-destination-record'),
+    FocusNode(debugLabel: 'shell-destination-library'),
+    FocusNode(debugLabel: 'shell-destination-trash'),
+    FocusNode(debugLabel: 'shell-destination-settings'),
+  ];
 
   static const destinations = [
     NavigationDestination(
@@ -32,16 +50,18 @@ class _HomeShellState extends ConsumerState<HomeShell> {
     NavigationDestination(icon: Icon(Icons.settings_outlined), label: '设置'),
   ];
 
-  static const screens = [
-    RecordingScreen(),
-    ConnectedMeetingLibraryScreen(),
-    TrashScreen(),
-    SettingsScreen(),
-  ];
+  @override
+  void dispose() {
+    for (final node in _destinationFocusNodes) {
+      node.dispose();
+    }
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final profile = ref.watch(platformProfileProvider);
+    final screens = widget.screens;
     if (profile.form == DeviceForm.mobile) {
       return Scaffold(
         body: SafeArea(
@@ -54,40 +74,99 @@ class _HomeShellState extends ConsumerState<HomeShell> {
         ),
       );
     }
-    return Scaffold(
-      body: Row(
-        children: [
-          NavigationRail(
-            extended: MediaQuery.sizeOf(context).width >= 1080,
-            selectedIndex: index,
-            onDestinationSelected: _selectDestination,
-            leading: const Padding(
-              padding: EdgeInsets.symmetric(vertical: 20),
-              child: Icon(Icons.graphic_eq, size: 32),
-            ),
-            destinations: destinations
-                .map(
-                  (item) => NavigationRailDestination(
-                    icon: item.icon,
-                    selectedIcon: item.selectedIcon,
-                    label: Text(item.label),
-                  ),
-                )
-                .toList(),
-          ),
-          const VerticalDivider(width: 1),
-          Expanded(
-            child: IndexedStack(index: index, children: screens),
-          ),
-        ],
-      ),
+    return _DesktopShell(
+      profile: profile,
+      selectedIndex: index,
+      focusNodes: _destinationFocusNodes,
+      onDestinationSelected: _selectDestination,
+      body: IndexedStack(index: index, children: screens),
     );
   }
 
   void _selectDestination(int value) {
+    // Re-selecting the current destination is a no-op: no page rebuild and no
+    // redundant data reload. The first switch into the library still refreshes.
+    if (value == index) {
+      return;
+    }
     setState(() => index = value);
     if (value == 1) {
       ref.read(meetingLibraryProvider.notifier).load();
     }
   }
 }
+
+/// Desktop shell that wires platform digit shortcuts to destination selection
+/// and renders the Calm Focus [DesktopNavigation] rail beside the page body.
+class _DesktopShell extends StatelessWidget {
+  const _DesktopShell({
+    required this.profile,
+    required this.selectedIndex,
+    required this.focusNodes,
+    required this.onDestinationSelected,
+    required this.body,
+  });
+
+  final PlatformProfile profile;
+  final int selectedIndex;
+  final List<FocusNode> focusNodes;
+  final ValueChanged<int> onDestinationSelected;
+  final Widget body;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = Theme.of(context).extension<ThemeTokens>()!;
+    return Shortcuts(
+      shortcuts: shellDestinationShortcuts(),
+      child: Actions(
+        actions: <Type, Action<Intent>>{
+          SelectShellDestinationIntent:
+              CallbackAction<SelectShellDestinationIntent>(
+                onInvoke: (intent) {
+                  final target = intent.destination.index;
+                  onDestinationSelected(target);
+                  // Move focus onto the visible rail so it never stays on a control
+                  // inside the now-hidden IndexedStack page.
+                  if (target < focusNodes.length) {
+                    focusNodes[target].requestFocus();
+                  }
+                  return null;
+                },
+              ),
+        },
+        child: Focus(
+          // Give the shell an initial focus node inside the Shortcuts scope so
+          // destination shortcuts work from launch, before the user tabs or
+          // clicks into the rail. Placing it here (not on a destination) avoids
+          // painting a focus ring over a destination on startup.
+          autofocus: true,
+          child: Scaffold(
+            body: Row(
+              children: [
+                DesktopNavigation(
+                  selectedIndex: selectedIndex,
+                  onDestinationSelected: onDestinationSelected,
+                  profile: profile,
+                  focusNodes: focusNodes,
+                  extended: shellIsExtended(MediaQuery.sizeOf(context).width),
+                ),
+                VerticalDivider(width: 1, thickness: 1, color: tokens.outline),
+                Expanded(child: body),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The real provider-bound business screens mounted by [HomeShell] in
+/// production. Kept as a top-level const so the same instances are reused
+/// across rebuilds and IndexedStack preserves each page's internal state.
+const List<Widget> kHomeShellScreens = [
+  RecordingScreen(),
+  ConnectedMeetingLibraryScreen(),
+  TrashScreen(),
+  SettingsScreen(),
+];
