@@ -62,8 +62,15 @@ RecordingCoordinator drives a continuous animation that would never settle.
 
 ## Internal review
 
-- P0/P1/P2: none. P3 (recent-meetings projection cost on the prep screen) bounded
-  by `kRecentMeetingsLimit = 5`; noted for the Loop 6 asset-state projection work.
+- P0/P1: none.
+- P2 (found, fixed): the deep-link preselect test originally deep-linked to the
+  newest meeting (library item 0), so the default fallback masked whether
+  preselect worked. Fixed — the test now deep-links to the older meeting and
+  asserts the detail pane shows it (5/5 PASS).
+- P3 (accepted): recent-meetings projection runs twice (prep + library gutter);
+  bounded by `kRecentMeetingsLimit = 5`. Damaged recording labeled "录音已保存"
+  (no status projection on the prep bundle). Deep-link dropped when the library
+  search filters the target out. All noted for the Loop 6 asset-state work.
 - Verdict: `APPROVE`.
 
 ## Gate status

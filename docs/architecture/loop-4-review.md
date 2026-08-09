@@ -52,11 +52,23 @@ re-confirmed by regression, not re-implemented here.
 
 - P0: none.
 - P1: none.
-- P2: none.
-- P3: the recent-meetings list is derived from `meetingLibraryProvider`, which
-  also feeds the library gutter; a large library pays the projection cost twice on
-  the prep screen. Bounded by `kRecentMeetingsLimit = 5` and acceptable for this
-  local-first app; noted for the Loop 6 asset-state projection work.
+- P2 (found, fixed): the "deep-link switches shell to library and preselects"
+  test deep-linked to the newest meeting, which is library item 0 — so the
+  default first-item fallback masked whether preselect actually worked. Fixed by
+  deep-linking to the older meeting (`m-older`, library item 1) and asserting the
+  wide detail pane shows `MeetingDetailScreen.meeting.id == 'm-older'`. This
+  makes a correct preselect distinguishable from the fallback. Re-run: 5/5 PASS.
+- P3 (accepted): the recent-meetings list is derived from `meetingLibraryProvider`,
+  which also feeds the library gutter; a large library pays the projection cost
+  twice on the prep screen. Bounded by `kRecentMeetingsLimit = 5` and acceptable
+  for this local-first app; noted for the Loop 6 asset-state projection work.
+- P3 (accepted): a damaged/corrupt recording on a recent meeting is labeled
+  "录音已保存" because the prep bundle carries no recording-status projection
+  (only the library's `MeetingLibraryItem` derives damaged status). Cosmetic;
+  noted for the Loop 6 asset-state projection work.
+- P3 (accepted): a deep-link is dropped if the library's live search filter has
+  filtered that meeting out (`didUpdateWidget` only preselected when the item is
+  present). Edge case; acceptable for now.
 
 Verdict: `APPROVE`.
 

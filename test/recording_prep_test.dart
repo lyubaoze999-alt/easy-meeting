@@ -5,6 +5,7 @@ import 'package:easy_meeting/domain/models/note_template.dart';
 import 'package:easy_meeting/domain/models/transcript_document.dart';
 import 'package:easy_meeting/ui/home_shell.dart';
 import 'package:easy_meeting/ui/library/connected_meeting_library_screen.dart';
+import 'package:easy_meeting/ui/library/meeting_detail_screen.dart';
 import 'package:easy_meeting/ui/recording/recording_screen.dart';
 import 'package:easy_meeting/ui/theme/theme_tokens.dart';
 import 'package:flutter/material.dart';
@@ -161,14 +162,19 @@ void main() {
       await tester.pump(const Duration(milliseconds: 50));
     }
     expect(find.text('最近会议'), findsOneWidget);
-    await tester.tap(find.text('8月9日 14:30 会议'));
+    // Deep-link to the OLDER meeting (8月1日): it is the second library item, so
+    // a correct preselect is distinguishable from the default first-item fallback.
+    await tester.tap(find.text('8月1日 09:00 会议'));
     for (var i = 0; i < 4; i++) {
       await tester.pump(const Duration(milliseconds: 50));
     }
-    // The shell switched to the library tab and the deep-linked meeting's title
-    // appears in the wide detail pane.
+    // The shell switched to the library tab.
     expect(find.text('会议库'), findsWidgets);
-    expect(find.text('8月9日 14:30 会议'), findsWidgets);
+    // The wide detail pane shows the deep-linked meeting, NOT the first item.
+    final detail = tester.widget<MeetingDetailScreen>(
+      find.byType(MeetingDetailScreen),
+    );
+    expect(detail.meeting.id, 'm-older');
   });
 }
 
