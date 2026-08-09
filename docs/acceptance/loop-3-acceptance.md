@@ -70,6 +70,8 @@ async zone), matching the passing Loop 2 and permission-onboarding tests.
 
 - `CODE_GATE`: APPROVED.
 - `REVIEW_GATE`: APPROVED.
-- `PLATFORM_GATE`: PENDING — exact-commit Windows + macOS Release CI (monitored
-  after push); real-device Windows privacy verification recorded separately.
-- `OVERALL_LOOP3`: PENDING_PLATFORM_GATE until CI confirms.
+- `PLATFORM_GATE`: APPROVED — exact-commit CI on `2a05d04`: Shared quality
+  `31330199754` ✅, Platform builds `31330199748` both macOS ✅ and Windows ✅
+  (Release + MSIX). Real-device Windows privacy verification recorded
+  separately (loop 3 P3).
+- `OVERALL_LOOP3`: APPROVED.
