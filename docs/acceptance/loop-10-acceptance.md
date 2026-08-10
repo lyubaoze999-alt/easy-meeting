@@ -68,10 +68,14 @@ logic into CI, while honestly marking the real-device gates blocked:
 
 - `CODE_GATE`: APPROVED.
 - `REVIEW_GATE`: APPROVED (software scope).
-- `PLATFORM_GATE`: PENDING — exact-commit CI on Loop 10 branch top (fill after
-  Shared quality + Platform builds, including the new Windows drift step and
-  the macOS MacAudioLogic step).
+- `PLATFORM_GATE`: APPROVED on exact-commit `d71ad31` — Shared quality
+  success + Platform builds success (Windows job compiles/runs the
+  `vswhere`-located `cl` drift test; macOS job passes the `MacAudioLogic`
+  swiftc step; macOS/Windows release + MSIX + DMG built).
 - `REALDEVICE_GATE (Windows)`: BLOCKED — physical Windows hardware + audio
   device + MSIX install required; tracked in `desktop-checklist.md`.
-- `OVERALL_LOOP10`: APPROVED (software) pending exact-commit platform
-  confirmation; REALDEVICE pending hardware.
+- `OVERALL_LOOP10`: APPROVED (software).
+
+Platform-gate note: the exact-commit run also re-verifies the Loop 9
+`MacAudioLogic` macOS step (which was corrected on this same tip — see
+`loop-9-acceptance.md`), so both gates close on one green commit.

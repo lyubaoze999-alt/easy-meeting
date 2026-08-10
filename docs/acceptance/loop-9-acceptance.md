@@ -70,9 +70,23 @@ now covered by automated CI:
 
 - `CODE_GATE`: APPROVED.
 - `REVIEW_GATE`: APPROVED (software scope).
-- `PLATFORM_GATE`: PENDING — exact-commit CI on Loop 9 branch top (fill after
-  Shared quality + Platform builds).
+- `PLATFORM_GATE`: APPROVED on exact-commit `d71ad31` — Shared quality
+  success + Platform builds success (macOS job runs the `MacAudioLogic`
+  swiftc test, incl. the corrected ring-read count; Windows job runs the
+  Loop 10 drift test; macOS/Windows release + MSIX + DMG built).
 - `REALDEVICE_GATE (macOS)`: BLOCKED — physical Mac + full Xcode + signing
   identity required; tracked in `desktop-checklist.md`.
-- `OVERALL_LOOP9`: APPROVED (software) pending exact-commit platform
-  confirmation; REALDEVICE pending hardware.
+- `OVERALL_LOOP9`: APPROVED (software).
+
+### Platform-gate correction
+
+The first Loop 9 branch-top exact-commit run (`0dcebae`) failed its macOS
+`Verify mac audio logic` swiftc step. Diagnosis via a temporary debug
+workflow's annotations surfaced the real defect: `AudioRingBuffer.read`
+returned `Void`, but the native test assigns `var read = ring.read(...)`
+expecting the count read, so `read` inferred as `()` and the
+`read == 3` / `read == 8` assertions would not compile. The product code was
+corrected (`read` now returns the amount read, `@discardableResult`;
+production callers ignore it unchanged) and a cosmetic `ArraySlice` guard was
+added to the test. Re-verified green on `d71ad31` (all four platform jobs:
+ios/android/windows/macos).
