@@ -46,7 +46,11 @@ final class AudioRingBuffer {
     }
   }
 
-  func read(into output: UnsafeMutablePointer<Float>, count: Int) {
+  /// Returns the number of samples actually read (may be less than `count`
+  /// when the ring is not yet full). Production callers ignore the result; the
+  /// native tests assert on it to prove order and overrun semantics.
+  @discardableResult
+  func read(into output: UnsafeMutablePointer<Float>, count: Int) -> Int {
     lock.lock(); defer { lock.unlock() }
     let amount = min(count, available)
     for index in 0..<amount {
@@ -55,6 +59,7 @@ final class AudioRingBuffer {
     }
     available -= amount
     if amount < count { for index in amount..<count { output[index] = 0 } }
+    return amount
   }
 
   func reset() {
